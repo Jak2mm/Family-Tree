@@ -1,4 +1,4 @@
-import type { AppUser, AuditRow, BackupResult, BackupSettings, BackupStatus, DependencyCheck, LinkInfo, Me, NewLink, PersonInput, PersonSummary, PlaceLived, Preferences, Profile, TreeData } from "./types";
+import type { AppUser, AuditRow, BackupResult, BackupSettings, BackupStatus, DependencyCheck, LinkInfo, Me, NewLink, PartnershipChanges, PersonInput, PersonSummary, PlaceLived, Preferences, Profile, TreeData } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public data: Record<string, unknown> = {}) {
@@ -99,6 +99,7 @@ export const api = {
 
   createLink: (link: NewLink, force = false) => request<{ ids: string[] }>("POST", `/api/links${force ? "?force=1" : ""}`, link),
   undoLink: (linkId: string) => request<void>("DELETE", `/api/links/${enc(linkId)}`),
+  editPartnership: (linkId: string, changes: PartnershipChanges) => request<PartnershipChanges>("PATCH", `/api/links/${enc(linkId)}`, changes),
   getTree: () => request<TreeData>("GET", "/api/tree"),
 
   getBackupSettings: () => request<BackupSettings>("GET", "/api/settings/backup"),

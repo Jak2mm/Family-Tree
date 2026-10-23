@@ -182,3 +182,36 @@ def undo_link(link_id: str, user: CurrentUser = Depends(require("edit")), conn: 
     audit.record(conn, user.id, "delete", action, record_id)
     conn.commit()
     return Response(status_code=204)
+
+
+class PartnershipChanges(BaseModel):
+    kind: Literal["married", "de facto", "partner", "other"] | None = None
+    start_year: int | None = Field(default=None, ge=1, le=9999)
+    end_year: int | None = Field(default=None, ge=1, le=9999)
+
+
+@router.patch("/links/{link_id}")
+def edit_partnership(
+    link_id: str,
+    body: PartnershipChanges,
+    user: CurrentUser = Depends(require("edit")),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Change a partnership's kind, start year or end year. Only fields that are sent change; a year sent as null is cleared."""
+    m = LINK_ID.match(link_id)
+    row = conn.execute("SELECT * FROM Partnership WHERE id = ?", (int(m.group(5)),)).fetchone() if m and m.group(4) else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="That relationship could not be found.")
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("kind", "") is None:
+        raise reject("Please choose the kind of partnership.")
+    merged = {**dict(row), **changes}
+    if merged["start_year"] is not None and merged["end_year"] is not None and merged["end_year"] < merged["start_year"]:
+        raise reject("The year it ended cannot be earlier than the year it started.")
+    conn.execute(
+        "UPDATE Partnership SET kind = ?, start_year = ?, end_year = ? WHERE id = ?",
+        (merged["kind"], merged["start_year"], merged["end_year"], row["id"]),
+    )
+    audit.record(conn, user.id, "update", "partnership", row["id"])
+    conn.commit()
+    return {"id": f"c:{row['id']}", "kind": merged["kind"], "start_year": merged["start_year"], "end_year": merged["end_year"]}

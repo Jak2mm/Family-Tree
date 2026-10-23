@@ -100,6 +100,12 @@ export interface NewLink {
   parent_id?: number | null;
 }
 
+export interface PartnershipChanges {
+  kind: NonNullable<NewLink["partnership_kind"]>;
+  start_year: number | null;
+  end_year: number | null;
+}
+
 export interface TreePerson {
   id: number;
   name: string;
