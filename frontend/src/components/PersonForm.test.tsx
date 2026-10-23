@@ -93,4 +93,75 @@ describe("PersonForm", () => {
     expect(net.calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ given_names: "Mary", birth_date: "1950-03-07" });
     expect(net.count("DELETE /api/people/3/places/5")).toBe(1);
   });
+
+  it("shows no places editor to someone who can add but not edit, and still creates the person", async () => {
+    const net = mockFetch({ "GET /api/me/preferences": { body: PREFS }, "POST /api/people": { status: 201, body: saved } });
+    renderAs(["read", "add"], <PersonForm />);
+    await userEvent.type(await screen.findByLabelText("Given names"), "Eve");
+    expect(screen.queryByLabelText("Place")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add place" })).not.toBeInTheDocument();
+    expect(screen.getByText(/places lived can be added after saving, by someone who is allowed to edit/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save person" }));
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/person/7"));
+    expect(net.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
+  it("shows the places editor and no note to someone who can add and edit", async () => {
+    mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read", "add", "edit"], <PersonForm />);
+    expect(await screen.findByLabelText("Place")).toBeInTheDocument();
+    expect(screen.queryByText(/added after saving/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a permission message instead of the new-person form to a read-only user", async () => {
+    const net = mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read"], <PersonForm />);
+    expect(await screen.findByText("You do not have permission to do that.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Given names")).not.toBeInTheDocument();
+    expect(net.calls.some((c) => c.path.startsWith("/api/people"))).toBe(false);
+  });
+
+  it("shows a permission message instead of the edit form to someone who cannot edit", async () => {
+    const net = mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read", "add"], <PersonForm id={3} />);
+    expect(await screen.findByText("You do not have permission to do that.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Given names")).not.toBeInTheDocument();
+    expect(net.calls.some((c) => c.path === "/api/people/3")).toBe(false);
+  });
+
+  it.each([["19x6", "1960"], ["1960", "19x6"], ["12345", "1960"], ["-5", ""]])("rejects the place years %s / %s without adding the place", async (from, to) => {
+    mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read", "add", "edit"], <PersonForm />);
+    await userEvent.type(await screen.findByLabelText("Place"), "Geelong");
+    await userEvent.type(screen.getByLabelText("From year"), from);
+    if (to) await userEvent.type(screen.getByLabelText("To year"), to);
+    await userEvent.click(screen.getByRole("button", { name: "Add place" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/year/i);
+    expect(screen.queryByText(/Geelong from/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Place")).toHaveValue("Geelong");
+  });
+
+  it("rejects a from year after the to year", async () => {
+    mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read", "add", "edit"], <PersonForm />);
+    await userEvent.type(await screen.findByLabelText("Place"), "Geelong");
+    await userEvent.type(screen.getByLabelText("From year"), "1990");
+    await userEvent.type(screen.getByLabelText("To year"), "1980");
+    await userEvent.click(screen.getByRole("button", { name: "Add place" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/later/i);
+    expect(screen.queryByText(/Geelong from/)).not.toBeInTheDocument();
+  });
+
+  it("accepts a place with only a to year and clears an earlier year error", async () => {
+    mockFetch({ "GET /api/me/preferences": { body: PREFS } });
+    renderAs(["read", "add", "edit"], <PersonForm />);
+    await userEvent.type(await screen.findByLabelText("Place"), "Geelong");
+    await userEvent.type(screen.getByLabelText("From year"), "19x6");
+    await userEvent.click(screen.getByRole("button", { name: "Add place" }));
+    await userEvent.clear(screen.getByLabelText("From year"));
+    await userEvent.type(screen.getByLabelText("To year"), "1975");
+    await userEvent.click(screen.getByRole("button", { name: "Add place" }));
+    expect(screen.getByText("Geelong until 1975")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

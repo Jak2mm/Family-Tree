@@ -19,7 +19,7 @@ function Page({ route }: { route: Route }) {
     case "people":
       return <PeopleList />;
     case "person":
-      return <ProfilePage id={route.id} />;
+      return <ProfilePage key={route.id} id={route.id} />;
     case "personEdit":
       return <PersonForm key={`edit-${route.id}`} id={route.id} />;
     case "personNew":
@@ -50,6 +50,14 @@ export function App() {
         }
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    api.onUnauthorized(() => {
+      api.setCsrfToken("");
+      setSession((s) => (s.state === "in" ? { state: "login" } : s));
+    });
+    return () => api.onUnauthorized(() => {});
   }, []);
 
   const signedIn = (me: Me) => setSession({ state: "in", me });

@@ -9,14 +9,15 @@ interface Props {
   onConfirm: () => void;
   children?: ReactNode;
   className?: string;
+  disabled?: boolean;
 }
 
 /** A button that never acts straight away: it asks first. */
-export function ConfirmButton({ label, ariaLabel, title, confirmLabel, onConfirm, children, className }: Props) {
+export function ConfirmButton({ label, ariaLabel, title, confirmLabel, onConfirm, children, className, disabled }: Props) {
   const [asking, setAsking] = useState(false);
   return (
     <>
-      <button type="button" className={className} aria-label={ariaLabel} onClick={() => setAsking(true)}>
+      <button type="button" className={className} disabled={disabled} aria-label={ariaLabel} onClick={() => setAsking(true)}>
         {label}
       </button>
       {asking && (

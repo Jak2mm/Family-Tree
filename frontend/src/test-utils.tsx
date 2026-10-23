@@ -9,7 +9,8 @@ export interface Req {
   path: string;
   body: unknown;
 }
-export type Handler = { status?: number; body?: unknown } | ((req: Req) => { status?: number; body?: unknown });
+type Result = { status?: number; body?: unknown };
+export type Handler = Result | ((req: Req) => Result | Promise<Result>);
 
 /** Replace fetch with a table of "METHOD /path?query" -> response. An unlisted request fails the test loudly. */
 export function mockFetch(routes: Record<string, Handler>) {
@@ -24,7 +25,7 @@ export function mockFetch(routes: Record<string, Handler>) {
     calls.push(req);
     const handler = routes[`${method} ${path}`];
     if (!handler) throw new Error(`Unexpected request: ${method} ${path}`);
-    const out = typeof handler === "function" ? handler(req) : handler;
+    const out = await (typeof handler === "function" ? handler(req) : handler);
     const status = out.status ?? 200;
     return new Response(status === 204 ? null : JSON.stringify(out.body ?? {}), {
       status,
@@ -52,4 +53,11 @@ export const PREFS = { layout: 1, card_fields: ["name", "photo", "dates"], date_
 
 export function renderAs(perms: string[], ui: ReactElement) {
   return render(<MeProvider user={meWith(perms)} onSignOut={() => {}}>{ui}</MeProvider>);
+}
+
+/** A promise you settle by hand, to hold a request in flight. */
+export function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
 }

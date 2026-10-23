@@ -6,10 +6,11 @@ interface Props {
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
+  busy?: boolean;
 }
 
 /** A small modal question built on the native <dialog> element. Render it only while the question is open. */
-export function ConfirmDialog({ title, confirmLabel, onConfirm, onCancel, children }: Props) {
+export function ConfirmDialog({ title, confirmLabel, onConfirm, onCancel, children, busy }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -34,7 +35,7 @@ export function ConfirmDialog({ title, confirmLabel, onConfirm, onCancel, childr
         <button type="button" onClick={onCancel} autoFocus>
           Cancel
         </button>
-        <button type="button" className="danger" onClick={onConfirm}>
+        <button type="button" className="danger" disabled={busy} onClick={onConfirm}>
           {confirmLabel}
         </button>
       </div>

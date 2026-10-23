@@ -15,6 +15,10 @@ export function messageOf(error: unknown): string {
 }
 
 let csrfToken = "";
+let unauthorized: () => void = () => {};
+
+/** Requests that may legitimately get 401 without meaning "your session ended". */
+const SIGNED_OUT_OK = new Set(["/api/login", "/api/me", "/api/setup", "/api/setup/status"]);
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
@@ -41,6 +45,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     const detail = typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.";
+    if (res.status === 401 && !SIGNED_OUT_OK.has(path)) unauthorized();
     throw new ApiError(res.status, detail, data);
   }
   return data as T;
@@ -51,6 +56,10 @@ const enc = encodeURIComponent;
 export const api = {
   setCsrfToken(token: string) {
     csrfToken = token;
+  },
+  /** Called when a request made while signed in is refused with 401 (the session ended). */
+  onUnauthorized(callback: () => void) {
+    unauthorized = callback;
   },
   setupStatus: () => request<{ needed: boolean }>("GET", "/api/setup/status"),
   setup: (username: string, password: string) => request<AppUser>("POST", "/api/setup", { username, password }),

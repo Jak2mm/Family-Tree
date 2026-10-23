@@ -11,11 +11,10 @@ const WORDS = { parent: "parent", child: "child", partner: "partner" };
 export function DeletePerson({ id, name }: { id: number; name: string }) {
   const [step, setStep] = useState<"idle" | "confirm" | "links">("idle");
   const [links, setLinks] = useState<LinkInfo[]>([]);
-  const { error, run } = useAction();
+  const { error, busy, run } = useAction();
 
   const remove = async (mode: "refuse" | "remove") => {
-    setStep("idle");
-    await run(async () => {
+    const ok = await run(async () => {
       try {
         await api.deletePerson(id, mode);
       } catch (e) {
@@ -28,16 +27,18 @@ export function DeletePerson({ id, name }: { id: number; name: string }) {
       }
       navigate("#/people");
     });
+    if (!ok) setStep("idle");
   };
 
   return (
     <section className="danger-zone">
       <ErrorMessage message={error} />
-      <button type="button" className="danger" onClick={() => setStep("confirm")}>
+      <button type="button" className="danger" disabled={busy} onClick={() => setStep("confirm")}>
         Delete person
       </button>
       {step === "confirm" && (
-        <ConfirmDialog title={`Delete ${name}?`} confirmLabel="Delete" onCancel={() => setStep("idle")} onConfirm={() => remove("refuse")}>
+        <ConfirmDialog title={`Delete ${name}?`} confirmLabel="Delete" busy={busy}
+          onCancel={() => setStep("idle")} onConfirm={() => remove("refuse")}>
           <p>Their details, albums and photos will be removed for good. This cannot be undone.</p>
         </ConfirmDialog>
       )}
@@ -45,6 +46,7 @@ export function DeletePerson({ id, name }: { id: number; name: string }) {
         <ConfirmDialog
           title={`${name} still has relationships`}
           confirmLabel="Delete anyway (remove these links)"
+          busy={busy}
           onCancel={() => setStep("idle")}
           onConfirm={() => remove("remove")}
         >

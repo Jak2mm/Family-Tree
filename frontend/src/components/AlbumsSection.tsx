@@ -15,7 +15,7 @@ interface Props {
 
 export function AlbumsSection({ personId, albums, profilePhotoId, onChanged }: Props) {
   const { can } = useMe();
-  const { error, run } = useAction(onChanged);
+  const { error, busy, run } = useAction(onChanged);
   const [title, setTitle] = useState("");
 
   const addAlbum = (e: FormEvent) => {
@@ -38,6 +38,7 @@ export function AlbumsSection({ personId, albums, profilePhotoId, onChanged }: P
             {can("delete") && (
               <ConfirmButton
                 label="Delete album"
+                disabled={busy}
                 ariaLabel={`Delete album ${album.title}`}
                 className="danger"
                 title={`Delete the album "${album.title}"?`}
@@ -51,7 +52,7 @@ export function AlbumsSection({ personId, albums, profilePhotoId, onChanged }: P
           {album.photos.length === 0 && <p className="muted">No photos in this album yet.</p>}
           <ul className="photos">
             {album.photos.map((photo) => (
-              <PhotoCard key={photo.id} photo={photo} personId={personId} isProfile={photo.id === profilePhotoId} run={run} />
+              <PhotoCard key={photo.id} photo={photo} personId={personId} isProfile={photo.id === profilePhotoId} run={run} busy={busy} />
             ))}
           </ul>
           {can("add") && <UploadForm albumId={album.id} title={album.title} onChanged={onChanged} />}
@@ -63,14 +64,16 @@ export function AlbumsSection({ personId, albums, profilePhotoId, onChanged }: P
             Album title
             <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
           </label>
-          <button type="submit">Add album</button>
+          <button type="submit" disabled={busy}>
+            Add album
+          </button>
         </form>
       )}
     </section>
   );
 }
 
-function PhotoCard({ photo, personId, isProfile, run }: { photo: Photo; personId: number; isProfile: boolean; run: (a: () => Promise<unknown>) => Promise<boolean> }) {
+function PhotoCard({ photo, personId, isProfile, run, busy }: { photo: Photo; personId: number; isProfile: boolean; busy: boolean; run: (a: () => Promise<unknown>) => Promise<boolean> }) {
   const { can } = useMe();
   const label = [photo.caption, photo.year].filter(Boolean).join(", ");
   return (
@@ -82,13 +85,14 @@ function PhotoCard({ photo, personId, isProfile, run }: { photo: Photo; personId
       {isProfile && <p className="muted">Profile photo</p>}
       <div className="button-row">
         {can("edit") && !isProfile && (
-          <button type="button" aria-label={`Make profile photo${photo.caption ? `: ${photo.caption}` : ""}`} onClick={() => run(() => api.setProfilePhoto(personId, photo.id))}>
+          <button type="button" disabled={busy} aria-label={`Make profile photo${photo.caption ? `: ${photo.caption}` : ""}`} onClick={() => run(() => api.setProfilePhoto(personId, photo.id))}>
             Make profile photo
           </button>
         )}
         {can("delete") && (
           <ConfirmButton
             label="Delete photo"
+            disabled={busy}
             ariaLabel={`Delete photo${photo.caption ? `: ${photo.caption}` : ""}`}
             className="danger"
             title="Delete this photo?"

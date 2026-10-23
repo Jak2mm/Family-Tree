@@ -5,7 +5,7 @@ import { ProfilePage } from "./ProfilePage";
 import { UserMenu } from "./UserMenu";
 import { MeProvider } from "../me";
 import { render } from "@testing-library/react";
-import { PREFS, meWith, mockFetch, renderAs } from "../test-utils";
+import { PREFS, deferred, meWith, mockFetch, renderAs } from "../test-utils";
 
 const profile = {
   id: 1, name: "Mary Smith", given_names: "Mary", family_name: "Smith",
@@ -221,5 +221,88 @@ describe("date format picker", () => {
     mockFetch({ ...routes(), "GET /api/me/preferences": { body: { ...PREFS, date_format: "YYYY-MM-DD" } } });
     renderAs(["read"], <ProfilePage id={1} />);
     expect(await screen.findByText("1950-03-07")).toBeInTheDocument();
+  });
+});
+
+describe("late responses", () => {
+  it("shows the person you are on when an earlier request finishes last", async () => {
+    const first = deferred<{ body: unknown }>();
+    const other = { ...profile, id: 2, name: "Second Person", albums: [] };
+    mockFetch({
+      "GET /api/me/preferences": { body: PREFS },
+      "GET /api/people/1": () => first.promise,
+      "GET /api/people/2": { body: other },
+    });
+    const ui = (id: number) => (
+      <MeProvider user={meWith(["read", "delete"])} onSignOut={() => {}}>
+        <ProfilePage id={id} />
+      </MeProvider>
+    );
+    const { rerender } = render(ui(1));
+    rerender(ui(2));
+    expect(await screen.findByRole("heading", { level: 1, name: "Second Person" })).toBeInTheDocument();
+    first.resolve({ body: profile });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Second Person");
+    await userEvent.click(screen.getByRole("button", { name: "Delete person" }));
+    expect(screen.getByRole("dialog", { name: "Delete Second Person?" })).toBeInTheDocument();
+  });
+});
+
+describe("double clicks", () => {
+  it("sends one request when Add album is pressed twice while the first is pending", async () => {
+    const hold = deferred<{ status: number; body: unknown }>();
+    const net = mockFetch({ ...routes(), "POST /api/people/1/albums": () => hold.promise });
+    renderAs(["read", "add"], <ProfilePage id={1} />);
+    await screen.findByRole("heading", { level: 1 });
+    await userEvent.type(screen.getByLabelText("Album title"), "Holiday");
+    const button = screen.getByRole("button", { name: "Add album" });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(net.count("POST /api/people/1/albums")).toBe(1);
+    hold.resolve({ status: 201, body: { id: 10 } });
+    await vi.waitFor(() => expect(button).toBeEnabled());
+  });
+
+  it("sends one request when Make profile photo is pressed twice", async () => {
+    const hold = deferred<{ body: unknown }>();
+    const net = mockFetch({ ...routes(), "PUT /api/people/1/profile-photo/30": () => hold.promise });
+    renderAs(["read", "edit"], <ProfilePage id={1} />);
+    await screen.findByRole("heading", { level: 1 });
+    const button = screen.getByRole("button", { name: /make profile photo/i });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(net.count("PUT /api/people/1/profile-photo/30")).toBe(1);
+    hold.resolve({ body: profile });
+  });
+
+  it("sends one upload when Upload photo is pressed twice", async () => {
+    const hold = deferred<{ status: number; body: unknown }>();
+    const net = mockFetch({ ...routes(), "POST /api/albums/9/photos": () => hold.promise });
+    renderAs(["read", "add"], <ProfilePage id={1} />);
+    await screen.findByRole("heading", { level: 1 });
+    await userEvent.upload(screen.getByLabelText(/choose a photo/i), new File(["x"], "pic.jpg", { type: "image/jpeg" }));
+    const button = screen.getByRole("button", { name: "Upload photo" });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(net.count("POST /api/albums/9/photos")).toBe(1);
+    hold.resolve({ status: 201, body: { id: 31 } });
+  });
+
+  it("disables the delete confirmation while the request is in flight", async () => {
+    const hold = deferred<{ status: number }>();
+    const net = mockFetch({ ...routes(), "DELETE /api/people/1?links=refuse": () => hold.promise });
+    renderAs(["read", "delete"], <ProfilePage id={1} />);
+    await screen.findByRole("heading", { level: 1 });
+    await userEvent.click(screen.getByRole("button", { name: "Delete person" }));
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" });
+    await userEvent.click(confirm);
+    await userEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete person" })).toBeDisabled();
+    expect(net.count("DELETE /api/people/1?links=refuse")).toBe(1);
+    hold.resolve({ status: 204 });
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/people"));
   });
 });

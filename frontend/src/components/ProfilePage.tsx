@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, messageOf, thumbUrl } from "../api";
 import { formatDate } from "../dates";
 import { useMe } from "../me";
@@ -19,29 +19,38 @@ export function ProfilePage({ id }: { id: number }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState("");
 
+  const latest = useRef(0);
+
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     try {
-      setProfile(await api.getPerson(id));
+      const loaded = await api.getPerson(id);
+      if (mine !== latest.current) return; // a newer request (or another person) has taken over
+      setProfile(loaded);
       setError("");
     } catch (e) {
-      setError(messageOf(e));
+      if (mine === latest.current) setError(messageOf(e));
     }
   }, [id]);
 
   useEffect(() => {
     setProfile(null);
+    setError("");
     load();
+    return () => {
+      latest.current++;
+    };
   }, [load]);
 
   if (!profile) {
     return (
-      <main>
+      <div>
         <ErrorMessage message={error} />
         {!error && <p className="muted">Loading…</p>}
         <p>
           <a href="#/people">Back to people</a>
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -54,7 +63,7 @@ export function ProfilePage({ id }: { id: number }) {
   ];
 
   return (
-    <main className="profile">
+    <div className="profile">
       <p>
         <a href="#/people">Back to people</a>
       </p>
@@ -121,9 +130,9 @@ export function ProfilePage({ id }: { id: number }) {
         </section>
       )}
 
-      <AlbumsSection personId={id} albums={profile.albums} profilePhotoId={profile.profile_photo_id} onChanged={load} />
+      <AlbumsSection key={`albums-${id}`} personId={id} albums={profile.albums} profilePhotoId={profile.profile_photo_id} onChanged={load} />
 
-      {can("delete") && <DeletePerson id={id} name={profile.name} />}
-    </main>
+      {can("delete") && <DeletePerson key={`delete-${id}`} id={id} name={profile.name} />}
+    </div>
   );
 }

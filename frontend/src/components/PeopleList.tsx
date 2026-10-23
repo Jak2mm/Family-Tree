@@ -27,7 +27,7 @@ export function PeopleList() {
   };
 
   return (
-    <main>
+    <div>
       <div className="page-head">
         <h1>People</h1>
         {can("add") && (
@@ -57,6 +57,6 @@ export function PeopleList() {
           </li>
         ))}
       </ul>
-    </main>
+    </div>
   );
 }

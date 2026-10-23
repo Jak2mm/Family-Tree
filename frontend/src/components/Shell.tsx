@@ -1,16 +1,17 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useMe } from "../me";
 import type { Route } from "../router";
 import { UserMenu } from "./UserMenu";
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const { can } = useMe();
+  const main = useRef<HTMLElement>(null);
   const here = (name: Route["name"]) => (route.name === name ? "page" : undefined);
   return (
     <>
-      <a className="skip" href="#main">
+      <button type="button" className="skip" onClick={() => main.current?.focus()}>
         Skip to content
-      </a>
+      </button>
       <header className="topbar">
         <a className="brand" href="#/people">
           Family Tree
@@ -30,9 +31,9 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </nav>
         <UserMenu />
       </header>
-      <div id="main" className="content">
+      <main id="main" ref={main} tabIndex={-1} className="content">
         {children}
-      </div>
+      </main>
     </>
   );
 }

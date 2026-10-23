@@ -81,4 +81,33 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
     expect(net.count("POST /api/logout")).toBe(1);
   });
+
+  it("returns to the sign-in screen when the session ends part way through", async () => {
+    mockFetch({
+      "GET /api/me": { body: meWith(["read"]) },
+      "GET /api/me/preferences": { body: PREFS },
+      "GET /api/people": signedOut,
+      "GET /api/setup/status": { body: { needed: false } },
+    });
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Family tree" })).not.toBeInTheDocument();
+  });
+
+  it("skip link keeps the current page and moves focus to the main content", async () => {
+    window.location.hash = "#/people";
+    mockFetch({
+      "GET /api/me": { body: meWith(["read"]) },
+      "GET /api/me/preferences": { body: PREFS },
+      "GET /api/people": { body: [] },
+    });
+    render(<App />);
+    await screen.findByRole("heading", { name: "People" });
+    await userEvent.click(screen.getByRole("button", { name: "Skip to content" }));
+    expect(window.location.hash).toBe("#/people");
+    expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument();
+    expect(screen.queryByText("Page not found")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveFocus();
+    expect(screen.getByRole("main")).toHaveAttribute("tabindex", "-1");
+  });
 });

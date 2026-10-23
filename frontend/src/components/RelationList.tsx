@@ -16,7 +16,7 @@ interface Props {
 
 export function RelationList({ title, people, onChanged, detail }: Props) {
   const { can } = useMe();
-  const { error, run } = useAction(onChanged);
+  const { error, busy, run } = useAction(onChanged);
   if (people.length === 0) return null;
 
   return (
@@ -34,6 +34,7 @@ export function RelationList({ title, people, onChanged, detail }: Props) {
               {r.link_id && can("edit") && (
                 <ConfirmButton
                   label="Undo link"
+                  disabled={busy}
                   ariaLabel={`Undo link with ${r.name}`}
                   title={`Undo the link with ${r.name}?`}
                   confirmLabel="Undo link"

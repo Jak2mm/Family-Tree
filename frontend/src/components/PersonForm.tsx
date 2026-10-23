@@ -11,7 +11,8 @@ import { PlacesEditor, type PlaceDraft } from "./PlacesEditor";
 const BLANK = { given: "", family: "", birth: "", birthPlace: "", death: "", occupation: "", bio: "" };
 
 export function PersonForm({ id }: { id?: number }) {
-  const { dateFormat, ready } = useMe();
+  const { dateFormat, ready, can } = useMe();
+  const allowed = id === undefined ? can("add") : can("edit");
   const [fields, setFields] = useState(BLANK);
   const [places, setPlaces] = useState<PlaceDraft[]>([]);
   const [removed, setRemoved] = useState<PlaceDraft[]>([]);
@@ -20,7 +21,7 @@ export function PersonForm({ id }: { id?: number }) {
   const { error, setError, busy, run } = useAction();
 
   useEffect(() => {
-    if (id === undefined || !ready) return;
+    if (id === undefined || !ready || !allowed) return;
     api.getPerson(id).then(
       (p) => {
         setFields({
@@ -35,7 +36,7 @@ export function PersonForm({ id }: { id?: number }) {
     );
     // dateFormat is read once, when the person arrives; changing it later must not wipe typing
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, ready]);
+  }, [id, ready, allowed]);
 
   const set = (name: keyof typeof BLANK) => (e: { target: { value: string } }) => setFields({ ...fields, [name]: e.target.value });
 
@@ -78,17 +79,29 @@ export function PersonForm({ id }: { id?: number }) {
     });
   };
 
+  if (!allowed) {
+    return (
+      <div>
+        <h1>{id === undefined ? "Add person" : "Edit person"}</h1>
+        <p className="error">You do not have permission to do that.</p>
+        <p>
+          <a href="#/people">Back to people</a>
+        </p>
+      </div>
+    );
+  }
+
   if (!loaded) {
     return (
-      <main>
+      <div>
         <ErrorMessage message={error} />
         {!error && <p className="muted">Loading…</p>}
-      </main>
+      </div>
     );
   }
 
   return (
-    <main>
+    <div>
       <h1>{id === undefined ? "Add person" : "Edit person"}</h1>
       <form onSubmit={submit} className="card">
         <label>
@@ -115,14 +128,18 @@ export function PersonForm({ id }: { id?: number }) {
           Occupation
           <input value={fields.occupation} onChange={set("occupation")} maxLength={200} />
         </label>
-        <PlacesEditor
-          places={places}
-          onAdd={(p) => setPlaces([...places, p])}
-          onRemove={(p) => {
-            setPlaces(places.filter((x) => x !== p));
-            if (p.id !== undefined) setRemoved([...removed, p]);
-          }}
-        />
+        {can("edit") ? (
+          <PlacesEditor
+            places={places}
+            onAdd={(p) => setPlaces([...places, p])}
+            onRemove={(p) => {
+              setPlaces(places.filter((x) => x !== p));
+              if (p.id !== undefined) setRemoved([...removed, p]);
+            }}
+          />
+        ) : (
+          <p className="muted">Places lived can be added after saving, by someone who is allowed to edit.</p>
+        )}
         <label>
           Biography
           <textarea value={fields.bio} onChange={set("bio")} rows={6} maxLength={20000} />
@@ -137,6 +154,6 @@ export function PersonForm({ id }: { id?: number }) {
           </a>
         </div>
       </form>
-    </main>
+    </div>
   );
 }
