@@ -1,3 +1,4 @@
+import glob
 import fcntl
 import json
 import os
@@ -333,7 +334,7 @@ def test_restore_replaces_live_database_and_keeps_the_old_one(live):
     c = sqlite3.connect(live_path(live))
     assert sorted(r[0] for r in c.execute("SELECT given_names FROM Person")) == ["Ann", "Bob"]
     c.close()
-    before = live_path(live) + ".before-restore"
+    [before] = glob.glob(live_path(live) + ".before-restore-*")
     c = sqlite3.connect(before)
     assert sorted(r[0] for r in c.execute("SELECT given_names FROM Person")) == ["Bob", "Carl"]
     c.close()
@@ -349,7 +350,7 @@ def test_restore_works_when_live_database_is_missing(live, tmp_path):
     os.remove(live_path(live))
     restore_backup(live, result.path)
     assert people_count(live_path(live)) == 2
-    assert not os.path.exists(live_path(live) + ".before-restore")
+    assert glob.glob(live_path(live) + ".before-restore*") == []
 
 
 def test_restore_rejects_files_that_are_not_good_backups(live, tmp_path):
@@ -361,7 +362,7 @@ def test_restore_rejects_files_that_are_not_good_backups(live, tmp_path):
         with pytest.raises(RestoreError):
             restore_backup(live, bad)
     assert people_count(live_path(live)) == 2
-    assert not os.path.exists(live_path(live) + ".before-restore")
+    assert glob.glob(live_path(live) + ".before-restore*") == []
 
 
 def lock_file(settings):

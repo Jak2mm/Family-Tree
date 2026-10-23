@@ -139,7 +139,7 @@ def test_restore_brings_photo_files_back_from_the_trash(full, settings, client):
 
     summary = backup.restore_backup(settings, result.path)
 
-    assert summary == {"restored": 2, "missing": 2}
+    assert (summary["restored"], summary["missing"]) == (2, 2)
     assert in_photos(settings) == sorted([f"{gone_base}.jpg", f"{gone_base}_thumb.jpg"])
     assert in_trash(settings) == []
 

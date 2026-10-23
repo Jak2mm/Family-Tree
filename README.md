@@ -270,9 +270,14 @@ Photos that were deleted within the last 30 days are brought back automatically 
    ```
 
    It says `Restored.` when finished. The database it replaced is kept inside the app's data volume
-   as `family_tree.db.before-restore`, in case you chose the wrong file. It also says how many photo
-   files were brought back from the deleted-photos folder, and how many could not be found (those photos
-   show a grey placeholder). Make sure the NAS is on before restoring, or deleted photos cannot be brought back.
+   as `family_tree.db.before-restore-DATE-TIME` (the message gives the exact name), in case you chose the
+   wrong file. Each restore keeps its own copy and never overwrites an earlier one; the app never deletes
+   them, so if you restore many times you may want to remove old ones from the data volume yourself.
+   It also says how many photo files were brought back from the deleted-photos folder, and how many could
+   not be found (those photos show a grey placeholder).
+
+   The NAS must be on: if it is offline, the restore stops straight away with "The NAS is offline … nothing
+   was changed". Mount the NAS (see Troubleshooting) and run the same command again.
 4. Start the app again:
 
    ```

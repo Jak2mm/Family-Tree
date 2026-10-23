@@ -314,9 +314,8 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
             print(f"Backup saved to {result.path}")
         else:
             photos = restore_backup(settings, args.file)
-            print("Restored. The previous database was kept as family_tree.db.before-restore. You can start the app again.")
-            if marker_missing(settings):
-                print("The NAS is offline, so deleted photos could not be brought back. Run the restore again when it is online.")
+            kept = f" The previous database was kept as {os.path.basename(photos['before'])}." if photos["before"] else ""
+            print(f"Restored.{kept} You can start the app again.")
             if photos["restored"]:
                 print(f"{photos['restored']} photo files were brought back from the deleted-photos folder.")
             if photos["missing"]:
