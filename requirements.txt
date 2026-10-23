@@ -1,0 +1,6 @@
+fastapi==0.161.1
+uvicorn==0.54.0
+pillow==13.0.0
+argon2-cffi==25.1.0
+python-multipart==0.0.32
+pip-audit==2.10.1
