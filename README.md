@@ -233,6 +233,14 @@ restore the empty state with `docker compose down -v` and start again.
 - Backups are saved to the NAS in the `backups` folder, as two files: `family-tree-DATE-TIME.db`
   (the real backup) and `family-tree-DATE-TIME-export.json` (a readable copy of people, relationships and bios, with no passwords).
 - Photos are already on the NAS, so they are not copied again.
+- **Deleted photos are kept for 30 days.** When someone deletes a photo, an album or a person, the photo
+  files are moved into a hidden folder on the NAS, `photos/.deleted`, instead of being removed. Each backup
+  (scheduled or **Back up now**) clears out files that were deleted more than 30 days ago. This is what lets a
+  restore (section 7) bring deleted photos back. If the NAS is offline when something is deleted, the photo
+  files are simply left where they are.
+- The backups and the `.deleted` folder only cover the last 30 days of deletions. For real safety,
+  also turn on **snapshots** for the NAS share in your NAS's own settings (most NAS systems have them),
+  so older photos can be recovered too.
 - **Settings > Backups** lets you choose the times of day (more than one is fine), the days of the week, and
   how many backups to keep (default 14, oldest are deleted). The first run is at 02:00 in your `TIMEZONE`.
 - **Back up now** makes one straight away. The page shows when the last backup ran, its size, and whether it worked.
@@ -244,7 +252,8 @@ restore the empty state with `docker compose down -v` and start again.
 
 Use this if the database is damaged or someone deleted too much. **Restoring replaces the current
 people, links and users with those in the backup**; anything entered after the backup is lost.
-Photos are not affected (they are on the NAS).
+Photos that were deleted within the last 30 days are brought back automatically from the NAS
+`photos/.deleted` folder; photos deleted longer ago can only come back from a NAS snapshot.
 
 1. Look at the file names in the NAS `backups` folder and pick the `.db` file you want, for example
    `family-tree-20261024-020000.db`.
@@ -261,7 +270,9 @@ Photos are not affected (they are on the NAS).
    ```
 
    It says `Restored.` when finished. The database it replaced is kept inside the app's data volume
-   as `family_tree.db.before-restore`, in case you chose the wrong file.
+   as `family_tree.db.before-restore`, in case you chose the wrong file. It also says how many photo
+   files were brought back from the deleted-photos folder, and how many could not be found (those photos
+   show a grey placeholder). Make sure the NAS is on before restoring, or deleted photos cannot be brought back.
 4. Start the app again:
 
    ```
@@ -269,6 +280,12 @@ Photos are not affected (they are on the NAS).
    ```
 
 If it says "That file is not a complete family tree backup", nothing was changed; try another file.
+
+**Getting one deleted photo back by hand** (without restoring a backup): on the NAS, open the
+`photos/.deleted` folder (it is hidden; use `ls -a`). Each photo is two files, for example
+`3f2c…9a.jpg` and `3f2c…9a_thumb.jpg`; `ls -lt` lists the most recently deleted first. The app only
+shows a photo that is listed in its database, so a file moved back by hand does not reappear on its own:
+the simplest way is to copy the `.jpg` to your computer and upload it again on the person's profile.
 
 ---
 

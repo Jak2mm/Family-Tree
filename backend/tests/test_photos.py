@@ -8,7 +8,7 @@ import zlib
 import pytest
 from PIL import Image
 
-from app import photos
+from app import photos, upload_limit
 from app.db import connect
 
 NOT_PICTURE = "That file is not a valid picture (JPEG, PNG, GIF or WebP)"
@@ -57,7 +57,8 @@ def upload(client, aid, data, name="pic.jpg", **fields):
 
 
 def stored_files(settings):
-    return sorted(os.listdir(settings.photos_dir)) if os.path.isdir(settings.photos_dir) else []
+    """Files in the photos folder itself; deleted ones move to the hidden .deleted folder (see test_trash.py)."""
+    return sorted(f for f in os.listdir(settings.photos_dir) if not f.startswith(".")) if os.path.isdir(settings.photos_dir) else []
 
 
 def photo_count(db):
@@ -303,10 +304,10 @@ def test_file_delete_failure_is_logged_not_raised(full, album, settings, db, mon
     _, aid = album
     photo = upload(full, aid, make_image()).json()["id"]
 
-    def boom(path):
+    def boom(*_):
         raise PermissionError("nope")
 
-    monkeypatch.setattr(os, "remove", boom)
+    monkeypatch.setattr(os, "rename", boom)  # moving the files to the trash fails
     assert full.delete(f"/api/photos/{photo}").status_code == 204
     assert photo_count(db) == 0
     assert "nope" in caplog.text
@@ -416,7 +417,7 @@ def test_image_between_one_and_two_times_pillow_limit_rejected(full, album, sett
 
 def test_content_length_over_limit_rejected_before_handler(full, album, settings, db):
     _, aid = album
-    limit = photos.MAX_UPLOAD_BYTES + photos.FORM_OVERHEAD
+    limit = photos.MAX_UPLOAD_BYTES + upload_limit.FORM_OVERHEAD
     r = full.post(f"/api/albums/{aid}/photos", content=b"x", headers={"Content-Length": str(limit + 1), "Content-Type": "multipart/form-data; boundary=b"})
     assert r.status_code == 413
     assert "15 MB" in r.json()["detail"]
@@ -463,7 +464,7 @@ def test_write_failure_gives_503_and_leaves_nothing(full, album, settings, db, m
 
 @pytest.mark.parametrize("path", ["/api/albums/+1/photos", "/api/albums/%2B1/photos", "/api/albums/%201/photos", "/api/albums/1_0/photos", "/api/albums/1/photos/"])
 def test_over_limit_content_length_rejected_for_odd_paths(full, album, settings, db, path):
-    limit = photos.MAX_UPLOAD_BYTES + photos.FORM_OVERHEAD
+    limit = photos.MAX_UPLOAD_BYTES + upload_limit.FORM_OVERHEAD
     r = full.post(path, content=b"x", headers={"Content-Length": str(limit + 1), "Content-Type": "multipart/form-data; boundary=b"})
     assert r.status_code == 413
     assert photo_count(db) == 0 and stored_files(settings) == []
@@ -472,7 +473,7 @@ def test_over_limit_content_length_rejected_for_odd_paths(full, album, settings,
 def test_non_integer_content_length_falls_back_to_counting():
     import asyncio
 
-    limit = photos.UploadSizeLimit.limit
+    limit = upload_limit.UploadSizeLimit.limit
     handled, sent = [], []
 
     async def inner(scope, receive, send):
@@ -489,5 +490,5 @@ def test_non_integer_content_length_falls_back_to_counting():
         sent.append(message)
 
     scope = {"type": "http", "method": "POST", "path": "/api/albums/1/photos", "headers": [(b"content-length", b"abc")]}
-    asyncio.run(photos.UploadSizeLimit(inner)(scope, receive, send))
+    asyncio.run(upload_limit.UploadSizeLimit(inner)(scope, receive, send))
     assert sent[0]["status"] == 413

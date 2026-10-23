@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app import audit, photos
+from app import audit, photos, trash
 from app.dates import parse_date, provably_before
 from app.security import CurrentUser, current_user, get_conn, require
 
@@ -276,7 +276,7 @@ def remove_person(
         conn.rollback()
         raise
     conn.commit()
-    photos.remove_files(request.app.state.settings.photos_dir, files)  # only after the commit
+    trash.move_to_trash(request.app.state.settings, files)  # only after the commit; kept 30 days for restores
     return Response(status_code=204)
 
 

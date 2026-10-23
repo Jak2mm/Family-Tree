@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, load_settings
-from app import audit, auth, backup, links, people, photos, settings_api, tree, users
+from app import audit, auth, backup, links, people, photos, settings_api, tree, upload_limit, users
 from app.db import connect, init_db
 
 
@@ -59,7 +59,7 @@ def create_app(
         field = next((str(p) for p in reversed(first["loc"]) if p != "body"), "request")
         return JSONResponse(status_code=422, content={"detail": f"Please check the {field} you entered: {first['msg']}."})
 
-    app.add_middleware(photos.UploadSizeLimit)
+    app.add_middleware(upload_limit.UploadSizeLimit)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(audit.router)

@@ -8,15 +8,14 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, Field
-from starlette.responses import JSONResponse
 
-from app import audit
+from app import audit, trash
 from app.security import CurrentUser, get_conn, require
+from app.upload_limit import MAX_UPLOAD_BYTES, TOO_LARGE, UploadSizeLimit  # noqa: F401 (UploadSizeLimit kept for older imports)
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 THUMB_WIDTH = 320
 ALLOWED_FORMATS = {"JPEG", "PNG", "GIF", "WEBP"}
 NOT_A_PICTURE = "That file is not a valid picture (JPEG, PNG, GIF or WebP)"
@@ -26,9 +25,7 @@ OFFLINE = "Photo storage is offline. Please try again when the NAS is available.
 # header; Pillow's limit is the backstop and is not relied on (it only warns between 1x and 2x).
 MAX_PIXELS = 50_000_000
 Image.MAX_IMAGE_PIXELS = 100_000_000
-FORM_OVERHEAD = 64 * 1024
-TOO_LARGE = "That picture is too large. The limit is 15 MB."
-UPLOAD_PATH = re.compile(r"^/api/albums/[^/]+/photos/?$")
+FILE_NAME = re.compile(r"[0-9a-f]{32}")  # the random names this app gives photos; nothing else is ever served
 
 
 class PictureRejected(ValueError):
@@ -100,7 +97,8 @@ def _write(path: str, content: bytes) -> None:
 
 
 def remove_files(photos_dir: str, bases: list[str]) -> None:
-    """Delete photo files after the database commit. Failures are logged, never raised."""
+    """Delete files of an upload that did not complete. Failures are logged, never raised.
+    (Deleted photos are not removed this way: they go to the trash, see app.trash.)"""
     for base in bases:
         for path in _paths(photos_dir, base):
             try:
@@ -207,6 +205,8 @@ def _serve(request: Request, conn: sqlite3.Connection, photo_id: int, thumb: boo
         raise HTTPException(status_code=404, detail="That photo could not be found.")
     path = _paths(request.app.state.settings.photos_dir, row["file_name"])[1 if thumb else 0]
     try:
+        if not FILE_NAME.fullmatch(row["file_name"] or ""):
+            raise OSError("not a photo file name")
         with open(path, "rb") as f:
             content = f.read()
     except OSError:
@@ -242,7 +242,7 @@ def remove_photo(
     except Exception:
         conn.rollback()
         raise
-    remove_files(request.app.state.settings.photos_dir, [row["file_name"]])
+    trash.move_to_trash(request.app.state.settings, [row["file_name"]])
     return Response(status_code=204)
 
 
@@ -267,7 +267,7 @@ def remove_album(
     except Exception:
         conn.rollback()
         raise
-    remove_files(request.app.state.settings.photos_dir, [p["file_name"] for p in photos])
+    trash.move_to_trash(request.app.state.settings, [p["file_name"] for p in photos])
     return Response(status_code=204)
 
 
@@ -295,52 +295,3 @@ def set_profile_photo(
     audit.record(conn, user.id, "update", "person", person_id)
     conn.commit()
     return people.profile(conn, person_id)
-
-
-class UploadSizeLimit:
-    """ASGI middleware: stop oversized photo uploads before the form is spooled to disk.
-
-    Applies only to POST /api/albums/{id}/photos. Rejects on Content-Length, and counts bytes
-    when there is none. The exact 15 MB check on the file itself stays in the handler.
-    """
-
-    limit = MAX_UPLOAD_BYTES + FORM_OVERHEAD
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] != "POST" or not UPLOAD_PATH.match(scope["path"]):
-            return await self.app(scope, receive, send)
-        declared = dict(scope["headers"]).get(b"content-length")
-        reject = JSONResponse({"detail": TOO_LARGE}, status_code=413)
-        if declared is not None:
-            try:
-                length = int(declared)
-            except ValueError:
-                length = None  # not a valid integer: count the bytes instead
-            if length is not None:
-                if length > self.limit:
-                    return await reject(scope, receive, send)
-                return await self.app(scope, receive, send)
-
-        total, rejected = 0, False
-
-        async def counting_receive():
-            nonlocal total, rejected
-            if rejected:
-                return {"type": "http.disconnect"}
-            message = await receive()
-            if message["type"] == "http.request":
-                total += len(message.get("body", b""))
-                if total > self.limit:
-                    rejected = True
-                    await reject(scope, receive, send)
-                    return {"type": "http.disconnect"}
-            return message
-
-        async def guarded_send(message):
-            if not rejected:
-                await send(message)
-
-        await self.app(scope, counting_receive, guarded_send)

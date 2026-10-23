@@ -19,8 +19,10 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
+from app import trash
 from app.config import Settings, load_settings, marker_missing, zone_for
 from app.db import SCHEMA, connect
+from app.restore import RestoreError, restore_backup  # noqa: F401 (restore_backup is part of this module's command line)
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +41,6 @@ class BackupResult:
     path: str | None
     size: int
     error: str | None
-
-
-class RestoreError(Exception):
-    """A restore was refused; the message is plain language for the person running it."""
 
 
 class _BackupError(Exception):
@@ -171,6 +169,10 @@ def run_and_record(settings: Settings, now: datetime) -> BackupResult:
     """Run a backup and store the outcome where the status endpoint and scheduler read it."""
     with _lock:
         result = run_backup(settings, now)
+        try:
+            trash.purge(settings)  # deleted photos older than 30 days; a problem here never fails the backup
+        except Exception:
+            log.exception("Could not clear old deleted photos")
         if os.path.isfile(live_path(settings)):
             at = now.astimezone(zone_for(settings)).isoformat()
             conn = connect(live_path(settings))
@@ -295,70 +297,7 @@ def run_backup(settings: Settings, now: datetime) -> BackupResult:
                 pass
 
 
-# ---- restore ----
-
-def _open_readonly(path: str) -> sqlite3.Connection:
-    return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
-
-
-def _validate(path: str) -> None:
-    if not os.path.isfile(path):
-        raise RestoreError("That backup file could not be found.")
-    try:
-        conn = _open_readonly(path)
-        try:
-            ok = conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        finally:
-            conn.close()
-    except sqlite3.DatabaseError:
-        ok, tables = False, set()
-    if not ok or not _TABLES <= tables:
-        raise RestoreError("That file is not a complete family tree backup, so nothing was changed.")
-
-
-def restore_backup(settings: Settings, path: str) -> None:
-    """Replace the live database with a backup. The old one is kept next to it as <name>.before-restore."""
-    os.makedirs(settings.data_dir, exist_ok=True)
-    try:
-        lock = acquire_app_lock(settings)
-    except RestoreError:
-        raise RestoreError("The app is running. Please stop it first, then restore, then start it again.") from None
-    try:
-        _restore_locked(settings, path)
-    finally:
-        lock.close()
-
-
-def _restore_locked(settings: Settings, path: str) -> None:
-    live = live_path(settings)
-    _validate(path)
-    staged = live + ".restoring"
-    try:
-        src = _open_readonly(path)
-        dst = sqlite3.connect(staged)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-            src.close()
-        if os.path.exists(live):
-            before = live + ".before-restore"
-            try:
-                _snapshot(live, before + ".tmp")
-            except sqlite3.DatabaseError:  # a damaged live database is a reason to restore, so copy it as it is
-                shutil.copy2(live, before + ".tmp")
-            os.replace(before + ".tmp", before)
-        os.replace(staged, live)
-        for extra in ("-wal", "-shm"):  # only now: leftovers from the old database must not be applied to the new one
-            if os.path.exists(live + extra):
-                os.remove(live + extra)
-    except OSError as e:
-        raise RestoreError(f"The restore could not be completed ({e}). The original database was left in place.") from e
-    finally:
-        if os.path.exists(staged):
-            os.remove(staged)
-
+# ---- restore: see app/restore.py ----
 
 def main(argv: list[str] | None = None, settings: Settings | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.backup")
@@ -374,8 +313,14 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
                 raise RestoreError(result.error)
             print(f"Backup saved to {result.path}")
         else:
-            restore_backup(settings, args.file)
+            photos = restore_backup(settings, args.file)
             print("Restored. The previous database was kept as family_tree.db.before-restore. You can start the app again.")
+            if marker_missing(settings):
+                print("The NAS is offline, so deleted photos could not be brought back. Run the restore again when it is online.")
+            if photos["restored"]:
+                print(f"{photos['restored']} photo files were brought back from the deleted-photos folder.")
+            if photos["missing"]:
+                print(f"{photos['missing']} photo files could not be found; those photos will show a placeholder.")
     except RestoreError as e:
         print(str(e), file=sys.stderr)
         return 1
