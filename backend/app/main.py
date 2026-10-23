@@ -30,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         field = next((str(p) for p in reversed(first["loc"]) if p != "body"), "request")
         return JSONResponse(status_code=422, content={"detail": f"Please check the {field} you entered: {first['msg']}."})
 
+    app.add_middleware(photos.UploadSizeLimit)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(audit.router)

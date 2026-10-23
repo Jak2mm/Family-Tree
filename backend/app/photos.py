@@ -2,12 +2,13 @@ import io
 import logging
 import os
 import sqlite3
+import re
 import uuid
-import warnings
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 
 from app import audit
 from app.security import CurrentUser, get_conn, require
@@ -21,8 +22,17 @@ ALLOWED_FORMATS = {"JPEG", "PNG", "GIF", "WEBP"}
 NOT_A_PICTURE = "That file is not a valid picture (JPEG, PNG, GIF or WebP)"
 OFFLINE = "Photo storage is offline. Please try again when the NAS is available."
 
-# Reject absurd pixel counts (decompression bombs) instead of decoding them.
+# Reject absurd pixel counts (decompression bombs) before decoding. Our own cap is checked from the
+# header; Pillow's limit is the backstop and is not relied on (it only warns between 1x and 2x).
+MAX_PIXELS = 50_000_000
 Image.MAX_IMAGE_PIXELS = 100_000_000
+FORM_OVERHEAD = 64 * 1024
+TOO_LARGE = "That picture is too large. The limit is 15 MB."
+UPLOAD_PATH = re.compile(r"^/api/albums/\d+/photos$")
+
+
+class PictureRejected(ValueError):
+    """Our own rejection: its message is plain language and safe to show the user."""
 
 
 class NewAlbum(BaseModel):
@@ -52,22 +62,26 @@ def process_image(data: bytes) -> tuple[bytes, bytes]:
     """Validate a picture by content and return (full JPEG, 320 px wide JPEG thumbnail).
 
     Raises ValueError with a plain message if it is not a JPEG, PNG, GIF or WebP, or is damaged.
+    Only PictureRejected carries our own text; any other error is logged and reported with the fixed message.
     """
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(data)) as probe:
-                if probe.format not in ALLOWED_FORMATS:
-                    raise ValueError(NOT_A_PICTURE)
-                probe.verify()
-            with Image.open(io.BytesIO(data)) as img:  # verify() leaves the image unusable: reopen
-                img.load()  # first frame only for GIF
-                upright = ImageOps.exif_transpose(img)  # before the metadata is dropped
-                full = _to_rgb(upright)
-    except ValueError:
+        with Image.open(io.BytesIO(data)) as probe:
+            if probe.format not in ALLOWED_FORMATS:
+                raise PictureRejected(NOT_A_PICTURE)
+            if probe.width * probe.height > MAX_PIXELS:
+                raise PictureRejected(NOT_A_PICTURE)
+            probe.verify()
+        with Image.open(io.BytesIO(data)) as img:  # verify() leaves the image unusable: reopen
+            img.load()  # first frame only for GIF
+            upright = ImageOps.exif_transpose(img)  # before the metadata is dropped
+            rgb = _to_rgb(upright)
+            # A fresh image carries no info, so no EXIF, XMP, ICC profile or comment can be written.
+            full = Image.frombytes("RGB", rgb.size, rgb.tobytes())
+    except PictureRejected:
         raise
-    except Exception:  # corrupt, truncated, too large, or not an image at all
-        raise ValueError(NOT_A_PICTURE) from None
+    except Exception as exc:  # corrupt, truncated, too large, or not an image at all
+        log.info("Rejected upload: %s: %s", type(exc).__name__, exc)
+        raise PictureRejected(NOT_A_PICTURE) from None
     thumb = full
     if full.width > THUMB_WIDTH:
         thumb = full.resize((THUMB_WIDTH, max(1, round(full.height * THUMB_WIDTH / full.width))), Image.LANCZOS)
@@ -76,6 +90,11 @@ def process_image(data: bytes) -> tuple[bytes, bytes]:
 
 def _paths(photos_dir: str, base: str) -> tuple[str, str]:
     return os.path.join(photos_dir, f"{base}.jpg"), os.path.join(photos_dir, f"{base}_thumb.jpg")
+
+
+def _write(path: str, content: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(content)
 
 
 def remove_files(photos_dir: str, bases: list[str]) -> None:
@@ -132,7 +151,7 @@ def add_album(
 
 
 @router.post("/albums/{album_id}/photos", status_code=201)
-async def add_photo(
+def add_photo(
     album_id: int,
     request: Request,
     file: UploadFile = File(...),
@@ -147,10 +166,10 @@ async def add_photo(
     if not nas_available(photos_dir):
         raise HTTPException(status_code=503, detail=OFFLINE)
     chunks, size = [], 0
-    while chunk := await file.read(64 * 1024):
+    while chunk := file.file.read(64 * 1024):
         size += len(chunk)
         if size > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="That picture is too large. The limit is 15 MB.")
+            raise HTTPException(status_code=413, detail=TOO_LARGE)
         chunks.append(chunk)
     try:
         full, thumb = process_image(b"".join(chunks))
@@ -160,8 +179,7 @@ async def add_photo(
     full_path, thumb_path = _paths(photos_dir, base)
     try:
         for path, content in ((full_path, full), (thumb_path, thumb)):
-            with open(path, "wb") as f:
-                f.write(content)
+            _write(path, content)
     except OSError as exc:
         log.warning("Could not write photo %s: %s", base, exc)
         remove_files(photos_dir, [base])
@@ -275,3 +293,51 @@ def set_profile_photo(
     audit.record(conn, user.id, "update", "person", person_id)
     conn.commit()
     return people.profile(conn, person_id)
+
+
+class UploadSizeLimit:
+    """ASGI middleware: stop oversized photo uploads before the form is spooled to disk.
+
+    Applies only to POST /api/albums/{id}/photos. Rejects on Content-Length, and counts bytes
+    when there is none. The exact 15 MB check on the file itself stays in the handler.
+    """
+
+    limit = MAX_UPLOAD_BYTES + FORM_OVERHEAD
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST" or not UPLOAD_PATH.match(scope["path"]):
+            return await self.app(scope, receive, send)
+        declared = dict(scope["headers"]).get(b"content-length")
+        reject = JSONResponse({"detail": TOO_LARGE}, status_code=413)
+        if declared is not None:
+            try:
+                too_big = int(declared) > self.limit
+            except ValueError:
+                too_big = False
+            if too_big:
+                return await reject(scope, receive, send)
+            return await self.app(scope, receive, send)
+
+        total, rejected = 0, False
+
+        async def counting_receive():
+            nonlocal total, rejected
+            if rejected:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                total += len(message.get("body", b""))
+                if total > self.limit:
+                    rejected = True
+                    await reject(scope, receive, send)
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            if not rejected:
+                await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)

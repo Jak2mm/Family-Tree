@@ -1,6 +1,9 @@
 import io
+import logging
 import os
 import shutil
+import struct
+import zlib
 
 import pytest
 from PIL import Image
@@ -355,3 +358,104 @@ def test_profile_photo_unknown_ids_404(full, album):
     pid, _ = album
     assert full.put(f"/api/people/{pid}/profile-photo/999").status_code == 404
     assert full.put("/api/people/999/profile-photo/1").status_code == 404
+
+
+# Metadata, error text, pixel cap, upload size, write failures
+
+def _png_with_chunk(kind: bytes, payload: bytes) -> bytes:
+    png = make_image("PNG", (20, 20))
+    chunk = struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+    return png[:33] + chunk + png[33:]  # right after IHDR
+
+
+def _jpeg_with_comment_and_xmp():
+    img = Image.new("RGB", (400, 300), (10, 120, 200))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", comment=b"SECRET-COMMENT", xmp=b"<x:xmpmeta>SECRET-XMP</x:xmpmeta>", icc_profile=b"SECRET-ICC" * 20)
+    return buf.getvalue()
+
+
+def _gif_with_comment():
+    buf = io.BytesIO()
+    Image.new("P", (400, 300)).save(buf, "GIF", comment=b"SECRET-COMMENT")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("data", [_jpeg_with_comment_and_xmp(), _gif_with_comment(), _png_with_chunk(b"iTXt", b"XML:com.adobe.xmp\0\0\0\0\0SECRET-XMP")], ids=["jpeg", "gif", "png"])
+def test_comments_xmp_and_icc_not_stored(full, album, settings, data):
+    _, aid = album
+    assert upload(full, aid, data).status_code == 201
+    for name in os.listdir(settings.photos_dir):
+        with open(os.path.join(settings.photos_dir, name), "rb") as f:
+            stored = f.read()
+        assert b"SECRET" not in stored
+        assert b"xmp" not in stored.lower() and b"ICC_PROFILE" not in stored
+
+
+def test_pillow_error_text_never_reaches_user_and_cause_is_logged(full, album, settings, db, caplog):
+    _, aid = album
+    big_text = zlib.compress(b"A" * (3 * 1024 * 1024))
+    data = _png_with_chunk(b"zTXt", b"Comment\0\0" + big_text)
+    with caplog.at_level(logging.INFO, logger="app.photos"):
+        r = upload(full, aid, data)
+    assert r.status_code == 422
+    assert r.json()["detail"] == NOT_PICTURE
+    assert "Rejected upload" in caplog.text and "too large" in caplog.text
+    assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+@pytest.mark.filterwarnings("ignore::PIL.Image.DecompressionBombWarning")
+def test_image_between_one_and_two_times_pillow_limit_rejected(full, album, settings, db, monkeypatch):
+    _, aid = album
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+    monkeypatch.setattr(photos, "MAX_PIXELS", 1000)
+    r = upload(full, aid, make_image("PNG", (50, 30)))  # 1500 pixels: 1.5x the limit
+    assert r.status_code == 422 and r.json()["detail"] == NOT_PICTURE
+    assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+def test_content_length_over_limit_rejected_before_handler(full, album, settings, db):
+    _, aid = album
+    limit = photos.MAX_UPLOAD_BYTES + photos.FORM_OVERHEAD
+    r = full.post(f"/api/albums/{aid}/photos", content=b"x", headers={"Content-Length": str(limit + 1), "Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 413
+    assert "15 MB" in r.json()["detail"]
+    assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+def test_chunked_body_over_limit_rejected(full, album, settings, db):
+    _, aid = album
+    chunk = b"\0" * (1024 * 1024)
+
+    def body():
+        for _ in range(17):
+            yield chunk
+
+    r = full.post(f"/api/albums/{aid}/photos", content=body(), headers={"Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 413
+    assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+def test_upload_just_under_cap_succeeds(full, album, settings, db, monkeypatch):
+    _, aid = album
+    monkeypatch.setattr(photos, "process_image", lambda data: (b"full", b"thumb"))
+    r = upload(full, aid, b"\0" * (photos.MAX_UPLOAD_BYTES - 10))
+    assert r.status_code == 201
+    assert photo_count(db) == 1
+
+
+def test_write_failure_gives_503_and_leaves_nothing(full, album, settings, db, monkeypatch):
+    _, aid = album
+    real = photos._write
+    calls = []
+
+    def flaky(path, content):
+        calls.append(path)
+        if len(calls) == 2:  # the thumbnail: the full image is already on disk
+            raise OSError("disk full")
+        real(path, content)
+
+    monkeypatch.setattr(photos, "_write", flaky)
+    r = upload(full, aid, make_image())
+    assert r.status_code == 503
+    assert photo_count(db) == 0 and stored_files(settings) == []
