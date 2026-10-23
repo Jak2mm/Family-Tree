@@ -1,0 +1,45 @@
+# Settings come from the file named ".env" next to this one (copy .env.example to .env).
+services:
+  app:
+    build: .
+    image: family-tree:latest
+    container_name: family-tree
+    restart: unless-stopped
+    init: true
+    # Which user the app runs as. Match this to the owner of the photos folder on the NAS (see README).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      # Only this VM by default. "tailscale serve" (see README) shares it with your other devices.
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    environment:
+      FAMILY_TREE_TIMEZONE: "${TIMEZONE:-Australia/Sydney}"
+      FAMILY_TREE_COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    volumes:
+      # The database lives on the VM's own disk (a Docker volume), never on the NAS.
+      - family_tree_data:/data
+      # Photos and backups live on the NAS. The folders must already exist (README, step 3);
+      # "create_host_path: false" stops Docker from quietly making an empty folder instead.
+      - type: bind
+        source: "${NAS_MOUNT:?Set NAS_MOUNT in the .env file}/photos"
+        target: /photos
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${NAS_MOUNT}/backups"
+        target: /backups
+        bind:
+          create_host_path: false
+      # Read-only view of the share, used only to look for the ".family-tree-nas-ok" marker file.
+      - type: bind
+        source: "${NAS_MOUNT}"
+        target: /nas
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  family_tree_data:

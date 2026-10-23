@@ -15,6 +15,8 @@ from app import audit, auth, backup, links, people, photos, settings_api, tree, 
 from app.db import connect, init_db
 
 
+NO_CACHE = "no-cache"
+IMMUTABLE = "public, max-age=31536000, immutable"
 DEFAULT_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
@@ -90,7 +92,8 @@ def _serve_frontend(app: FastAPI, dist: Path) -> None:
             return await http_exception_handler(request, exc)
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(dist):
-            return FileResponse(candidate)
+            # Files in /assets have a fingerprint in their name, so they never change; everything else is re-checked.
+            return FileResponse(candidate, headers={"Cache-Control": IMMUTABLE if path.startswith("assets/") else NO_CACHE})
         if path.startswith("assets/") or Path(path).suffix:
             return await http_exception_handler(request, exc)
-        return FileResponse(dist / "index.html")
+        return FileResponse(dist / "index.html", headers={"Cache-Control": NO_CACHE})

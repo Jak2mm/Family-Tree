@@ -56,3 +56,28 @@ def test_invalid_timezone_falls_back_to_utc_with_a_warning(monkeypatch, tmp_path
     monkeypatch.setenv("FAMILY_TREE_TIMEZONE", "Mars/Olympus")
     assert load_settings().timezone == "UTC"
     assert "Mars/Olympus" in caplog.text
+
+
+def test_cookie_secure_is_off_unless_asked_for(monkeypatch, tmp_path):
+    monkeypatch.setenv("FAMILY_TREE_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("FAMILY_TREE_COOKIE_SECURE", raising=False)
+    assert load_settings().cookie_secure is False
+    monkeypatch.setenv("FAMILY_TREE_COOKIE_SECURE", "true")
+    assert load_settings().cookie_secure is True
+    monkeypatch.setenv("FAMILY_TREE_COOKIE_SECURE", "no")
+    assert load_settings().cookie_secure is False
+
+
+def test_login_cookie_carries_secure_flag_when_enabled(settings):
+    import dataclasses
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    for flag in (False, True):
+        app = create_app(dataclasses.replace(settings, cookie_secure=flag), start_scheduler=False)
+        with TestClient(app, base_url="https://testserver") as c:
+            assert c.post("/api/setup", json={"username": "admin", "password": "a long enough password"}).status_code == 201
+            r = c.post("/api/login", json={"username": "admin", "password": "a long enough password"})
+            assert r.status_code == 200
+            assert ("secure" in r.headers["set-cookie"].lower()) is flag
+        import shutil; shutil.rmtree(settings.data_dir)

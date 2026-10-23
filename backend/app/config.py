@@ -15,6 +15,7 @@ class Settings:
     backups_dir: str
     secret_key: str
     timezone: str = "UTC"
+    cookie_secure: bool = False
 
 
 def load_settings() -> Settings:
@@ -23,7 +24,8 @@ def load_settings() -> Settings:
     FAMILY_TREE_DATA_DIR (default ./data) holds the database. Photos and
     backups default to sub-folders of it but are normally pointed at NAS
     mounts. If no secret key is given, one is generated once and kept in
-    the data folder so sessions survive restarts.
+    the data folder so sessions survive restarts. FAMILY_TREE_COOKIE_SECURE=true marks the sign-in
+    cookie HTTPS-only (use it when the app is reached over https, e.g. tailscale serve).
     """
     data_dir = os.environ.get("FAMILY_TREE_DATA_DIR", "./data")
     photos_dir = os.environ.get("FAMILY_TREE_PHOTOS_DIR", os.path.join(data_dir, "photos"))
@@ -35,7 +37,8 @@ def load_settings() -> Settings:
     except Exception:  # unknown name, bad characters or missing tz data
         log.warning("FAMILY_TREE_TIMEZONE %r is not a known time zone; using UTC.", timezone)
         timezone = "UTC"
-    return Settings(data_dir, photos_dir, backups_dir, secret_key, timezone)
+    cookie_secure = os.environ.get("FAMILY_TREE_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes", "on")
+    return Settings(data_dir, photos_dir, backups_dir, secret_key, timezone, cookie_secure)
 
 
 def zone_for(settings: Settings) -> ZoneInfo:

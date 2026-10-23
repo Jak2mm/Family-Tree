@@ -53,3 +53,15 @@ def test_routes_added_after_startup_are_not_shadowed_by_the_front_end(settings, 
     with TestClient(app) as c:
         assert c.get("/late").json() == {"late": True}
         assert c.post("/person/3").status_code == 404  # only GET falls back to the page
+
+
+def test_front_end_caching_headers(settings, tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app = create_app(settings, start_scheduler=False, frontend_dir=str(_make_dist(tmp_path / "dist")))
+    with TestClient(app) as c:
+        assert c.get("/").headers["cache-control"] == "no-cache"
+        assert c.get("/person/3").headers["cache-control"] == "no-cache"
+        assert "immutable" in c.get("/assets/app.js").headers["cache-control"]
+        assert "max-age=31536000" in c.get("/assets/app.js").headers["cache-control"]

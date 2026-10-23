@@ -127,6 +127,7 @@ def login(body: Credentials, request: Request, response: Response, conn: sqlite3
         token,
         httponly=True,
         samesite="strict",
+        secure=request.app.state.settings.cookie_secure,
         path="/",
     )
     return _me(CurrentUser(
@@ -149,7 +150,7 @@ def logout(
 ):
     conn.execute("DELETE FROM Session WHERE token = ?", (token_digest(request.cookies[SESSION_COOKIE]),))
     conn.commit()
-    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict")
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict", secure=request.app.state.settings.cookie_secure)
     return {"ok": True}
 
 
