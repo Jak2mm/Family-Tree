@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app import audit
 from app.dates import add_years, provably_before
+from app.kin import family_parents
 from app.people import display_name, get_person_row
 from app.security import CurrentUser, get_conn, require
 
@@ -79,7 +80,7 @@ def too_young(conn: sqlite3.Connection, parent: int, child: int) -> bool:
 
 def sibling_links(conn: sqlite3.Connection, a: int, b: int, parent_id: int | None) -> list[tuple[int, int, str]]:
     """(parent, child, kind) rows that make a and b siblings."""
-    pa, pb = parents_of(conn, a), parents_of(conn, b)
+    pa, pb = family_parents(conn, a), family_parents(conn, b)  # step and foster parents are not copied or compared
     if pa and pb:
         if set(pa) == set(pb):
             raise Conflict("They are already siblings.")

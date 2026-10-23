@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app import audit, photos, trash
 from app.dates import parse_date, provably_before
+from app.kin import FAMILY_KINDS, family_parents
 from app.security import CurrentUser, current_user, get_conn, require
 
 router = APIRouter(prefix="/api")
@@ -123,17 +124,16 @@ def relations_for(conn: sqlite3.Connection, person_id: int) -> dict:
             (person_id,),
         )
     ]
-    own_parents = {p["id"] for p in parents}
+    own_parents = set(family_parents(conn, person_id))  # biological and adoptive only: see app/kin.py
     siblings = []
     if own_parents:
         marks = ",".join("?" * len(own_parents))
         for r in conn.execute(
             f"SELECT DISTINCT p.* FROM ParentLink l JOIN Person p ON p.id = l.child_id"
-            f" WHERE l.parent_id IN ({marks}) AND l.child_id <> ? ORDER BY p.id",
-            (*own_parents, person_id),
+            f" WHERE l.parent_id IN ({marks}) AND l.kind IN (?, ?) AND l.child_id <> ? ORDER BY p.id",
+            (*own_parents, *FAMILY_KINDS, person_id),
         ):
-            theirs = {x[0] for x in conn.execute("SELECT parent_id FROM ParentLink WHERE child_id = ?", (r["id"],))}
-            siblings.append(person_entry(r, half=theirs != own_parents))
+            siblings.append(person_entry(r, half=set(family_parents(conn, r["id"])) != own_parents))
     partnerships = [
         person_entry(r, link_id=f"c:{r['pid']}", kind=r["kind"], start_year=r["start_year"], end_year=r["end_year"])
         for r in conn.execute(
