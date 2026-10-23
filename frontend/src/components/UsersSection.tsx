@@ -63,15 +63,23 @@ function NewUserForm({ onCreated }: { onCreated: () => Promise<void> }) {
   );
 }
 
-function UserRow({ user, isSelf, change }: { user: AppUser; isSelf: boolean; change: (changes: Record<string, unknown>) => Promise<boolean> }) {
+function UserRow({ user, isSelf, reload }: { user: AppUser; isSelf: boolean; reload: () => Promise<void> }) {
   const [resetting, setResetting] = useState(false);
   const [password, setPassword] = useState("");
+  const [changed, setChanged] = useState(false);
+  const { error, busy, run } = useAction(reload); // each row has its own, so one row never blocks or hides another
+  const change = (changes: Record<string, unknown>) => {
+    setChanged(false);
+    return run(() => api.updateUser(user.id, changes));
+  };
   const savePassword = async (e: FormEvent) => {
     e.preventDefault();
     const typed = password;
-    setPassword("");
-    setResetting(false);
-    await change({ password: typed });
+    setPassword(""); // never kept on screen once sent
+    if (await change({ password: typed })) {
+      setResetting(false);
+      setChanged(true);
+    }
   };
   return (
     <li className={user.active ? "user-row" : "user-row off"}>
@@ -94,6 +102,7 @@ function UserRow({ user, isSelf, change }: { user: AppUser; isSelf: boolean; cha
               type="checkbox"
               aria-label={`${label} (${user.username})`}
               checked={user[`can_${key}`]}
+              disabled={busy}
               onChange={(e) => change({ [`can_${key}`]: e.target.checked })}
             />
             {label}
@@ -112,12 +121,13 @@ function UserRow({ user, isSelf, change }: { user: AppUser; isSelf: boolean; cha
               title={`Disable ${user.username}?`}
               confirmLabel="Disable account"
               className="danger"
+              disabled={busy}
               onConfirm={() => change({ active: false })}
             >
               {`${user.username} will be signed out and will not be able to sign in until you enable the account again.`}
             </ConfirmButton>
           ) : (
-            <button type="button" aria-label={`Enable ${user.username}`} onClick={() => change({ active: true })}>
+            <button type="button" aria-label={`Enable ${user.username}`} disabled={busy} onClick={() => change({ active: true })}>
               Enable
             </button>
           ))}
@@ -128,11 +138,14 @@ function UserRow({ user, isSelf, change }: { user: AppUser; isSelf: boolean; cha
             {`New password for ${user.username}`}
             <input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
-          <button type="submit" className="primary">
+          <button type="submit" className="primary" disabled={busy}>
             Save new password
           </button>
+          {isSelf && <p className="hint">You will need to sign in again.</p>}
         </form>
       )}
+      <ErrorMessage message={error} />
+      {changed && <p role="status">Password changed.</p>}
     </li>
   );
 }
@@ -154,18 +167,15 @@ export function UsersSection() {
     load();
   }, [load]);
 
-  const { error, run } = useAction(load);
-  const change = (id: number) => (changes: Record<string, unknown>) => run(() => api.updateUser(id, changes));
 
   return (
     <section aria-labelledby="users-h">
       <h2 id="users-h">Users</h2>
       <ErrorMessage message={loadError} />
-      <ErrorMessage message={error} />
       {users === null && !loadError && <p className="muted">Loading…</p>}
       <ul className="users">
         {users?.map((u) => (
-          <UserRow key={u.id} user={u} isSelf={u.id === me.id} change={change(u.id)} />
+          <UserRow key={u.id} user={u} isSelf={u.id === me.id} reload={load} />
         ))}
       </ul>
       <NewUserForm onCreated={load} />

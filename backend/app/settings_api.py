@@ -45,7 +45,8 @@ def _session_hours(conn: sqlite3.Connection) -> int:
 def _settings_view(conn: sqlite3.Connection, settings: Settings) -> dict:
     times, days, retention = load_schedule(conn)
     return {"times": sorted(times), "days": days, "retention": retention,
-            "session_timeout_hours": _session_hours(conn), "backup_folder": settings.backups_dir}
+            "session_timeout_hours": _session_hours(conn), "backup_folder": settings.backups_dir,
+            "timezone": settings.timezone}
 
 
 @router.get("/settings/backup")

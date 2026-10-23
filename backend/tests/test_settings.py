@@ -68,7 +68,7 @@ def test_non_admin_gets_403(make_user, login_as, method, url, body):
 def test_defaults(admin, settings):
     r = admin.get("/api/settings/backup")
     assert r.status_code == 200
-    assert r.json() == {**VALID, "backup_folder": settings.backups_dir}
+    assert r.json() == {**VALID, "backup_folder": settings.backups_dir, "timezone": settings.timezone}
 
 
 def test_put_saves_and_audits(admin, db):
@@ -81,6 +81,11 @@ def test_put_saves_and_audits(admin, db):
     entry = db.execute("SELECT action, record_type FROM AuditEntry ORDER BY id DESC LIMIT 1").fetchone()
     assert tuple(entry) == ("update", "settings")
     assert db.execute("SELECT value FROM Setting WHERE key = 'session_timeout_hours'").fetchone()[0] == "24"
+
+
+def test_put_returns_the_timezone_the_times_are_read_in(admin, settings):
+    r = admin.put("/api/settings/backup", json=VALID)
+    assert r.status_code == 200 and r.json()["timezone"] == settings.timezone
 
 
 def test_put_ignores_backup_folder(admin, settings):
@@ -118,7 +123,8 @@ def test_malformed_stored_values_fall_back_to_defaults(admin, db):
     for key in ("backup_times", "backup_days", "backup_retention"):
         db.execute("INSERT INTO Setting (key, value) VALUES (?, 'garbage')", (key,))
     db.commit()
-    assert admin.get("/api/settings/backup").json() == {**VALID, "backup_folder": admin.get("/api/settings/backup").json()["backup_folder"]}
+    got = admin.get("/api/settings/backup").json()
+    assert got == {**VALID, "backup_folder": got["backup_folder"], "timezone": got["timezone"]}
 
 
 # ---- backup run and status ----

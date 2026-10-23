@@ -3,28 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { AdminSettings } from "./AdminSettings";
-import { PREFS, deferred, meWith, mockFetch, renderAs, type Handler } from "../test-utils";
-
-const SETTINGS = { times: ["02:00"], days: null, retention: 14, session_timeout_hours: 8, backup_folder: "/backups" };
-const STATUS_OK = {
-  last_run: "2026-10-20T12:00:00+00:00", ok: true, size: 2048, error: null, nas_available: true, warning: null, next_run: null,
-  retry: { retrying: false, next_retry_at: null },
-};
-const CHECK = { checked_at: "2026-10-20T12:00:00+00:00", vulnerabilities: [], check_failed: false, message: "No known vulnerabilities were found." };
-const ADMIN = { id: 1, username: "sam", is_admin: true, can_read: true, can_add: true, can_edit: true, can_delete: true, active: true };
-const BOB = { id: 2, username: "bob", is_admin: false, can_read: true, can_add: false, can_edit: false, can_delete: false, active: true };
-
-function routes(extra: Record<string, Handler> = {}): Record<string, Handler> {
-  return {
-    "GET /api/me/preferences": { body: PREFS },
-    "GET /api/users": { body: [ADMIN, BOB] },
-    "GET /api/settings/backup": { body: SETTINGS },
-    "GET /api/backup/status": { body: STATUS_OK },
-    "GET /api/settings/dependency-check": { body: CHECK },
-    "GET /api/audit?limit=50": { body: [] },
-    ...extra,
-  };
-}
+import { PREFS, deferred, meWith, mockFetch, renderAs } from "../test-utils";
+import { ADMIN, BOB, CHECK, SETTINGS, STATUS_OK, routes } from "./adminTestKit";
+import { when } from "./adminFormat";
 
 beforeEach(() => {
   vi.unstubAllGlobals();
@@ -178,7 +159,7 @@ describe("Backups", () => {
     mockFetch(routes());
     renderAs(["read", "admin"], <AdminSettings />);
     const status = await screen.findByTestId("backup-status");
-    expect(status).toHaveTextContent("20-10-2026");
+    expect(status).toHaveTextContent(when(STATUS_OK.last_run, "DD-MM-YYYY"));
     expect(status).toHaveTextContent("2 KB");
     expect(status).toHaveTextContent("Succeeded");
   });
@@ -254,7 +235,7 @@ describe("Recent activity", () => {
     renderAs(["read", "admin"], <AdminSettings />);
     const first = (await screen.findByText(/bob changed/)).closest("li")!;
     expect(first).toHaveTextContent("person 5");
-    expect(first).toHaveTextContent("20-10-2026");
+    expect(first).toHaveTextContent(when("2026-10-20T12:30:00Z", "DD-MM-YYYY"));
     expect(first).toHaveTextContent(/\d{2}:\d{2}/);
     expect(screen.getByText(/A removed user deleted/).closest("li")).toHaveTextContent("photo 9");
   });

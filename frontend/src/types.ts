@@ -135,6 +135,8 @@ export interface BackupSettings {
   retention: number;
   session_timeout_hours: number;
   backup_folder: string;
+  /** The zone the backup times are read in. */
+  timezone?: string;
 }
 
 export interface BackupStatus {

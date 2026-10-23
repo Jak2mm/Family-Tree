@@ -16,7 +16,8 @@ function StatusPanel({ status, error }: { status: BackupStatus | null; error: st
       <h3>Last backup</h3>
       {status.last_run ? (
         <p>
-          {when(status.last_run, dateFormat)}, {fileSize(status.size)}. {status.ok ? "Succeeded" : "Failed"}.
+          {when(status.last_run, dateFormat)}
+          {status.ok ? `, ${fileSize(status.size)}` : ""}. {status.ok ? "Succeeded" : "Failed"}.
         </p>
       ) : (
         <p className="muted">No backup has run yet.</p>
@@ -27,7 +28,7 @@ function StatusPanel({ status, error }: { status: BackupStatus | null; error: st
         </p>
       )}
       {status.error && <p className="error">Last error: {status.error}</p>}
-      {status.warning && status.nas_available && <p className="muted">{status.warning}</p>}
+      {status.warning && status.nas_available && !(status.error && status.warning.includes(status.error)) && <p className="muted">{status.warning}</p>}
       {status.next_run && <p className="hint">Next backup: {when(status.next_run, dateFormat)}</p>}
     </div>
   );
@@ -38,7 +39,10 @@ function BackupNow({ onDone }: { onDone: () => Promise<void> }) {
   const { error, busy, run } = useAction(onDone);
   return (
     <div>
-      <button type="button" disabled={busy} onClick={() => run(async () => setResult(await api.runBackup()))}>
+      <button type="button" disabled={busy} onClick={() => run(async () => {
+          setResult(null);
+          setResult(await api.runBackup());
+        })}>
         Back up now
       </button>
       <ErrorMessage message={error} />
@@ -52,13 +56,13 @@ function BackupNow({ onDone }: { onDone: () => Promise<void> }) {
   );
 }
 
-function SettingsForm({ initial }: { initial: BackupSettings }) {
+function SettingsForm({ initial, onSaved }: { initial: BackupSettings; onSaved: () => Promise<void> }) {
   const [times, setTimes] = useState(initial.times);
   const [days, setDays] = useState<number[]>(initial.days ?? []);
   const [retention, setRetention] = useState(String(initial.retention));
   const [hours, setHours] = useState(String(initial.session_timeout_hours));
   const [saved, setSaved] = useState(false);
-  const { error, busy, run } = useAction();
+  const { error, busy, run } = useAction(onSaved);
 
   const edit = <T,>(set: (v: T) => void) => (v: T) => (setSaved(false), set(v));
   const num = (text: string) => (text.trim() === "" ? null : Number(text));
@@ -66,7 +70,16 @@ function SettingsForm({ initial }: { initial: BackupSettings }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const body = { times, days: days.length ? [...days].sort() : null, retention: num(retention), session_timeout_hours: num(hours) };
-    setSaved(await run(() => api.saveBackupSettings(body)));
+    setSaved(
+      await run(async () => {
+        const stored = await api.saveBackupSettings(body);
+        // show what the server kept: it sorts the times and drops duplicates
+        setTimes(stored.times);
+        setDays(stored.days ?? []);
+        setRetention(String(stored.retention));
+        setHours(String(stored.session_timeout_hours));
+      }),
+    );
   };
 
   return (
@@ -76,7 +89,7 @@ function SettingsForm({ initial }: { initial: BackupSettings }) {
         {times.map((t, i) => (
           <div key={i} className="button-row">
             <label>
-              {`Backup time ${i + 1}`}
+              {`Backup time ${i + 1}${initial.timezone ? ` (${initial.timezone} time)` : ""}`}
               <input type="time" value={t} required onChange={(e) => edit(setTimes)(times.map((x, j) => (j === i ? e.target.value : x)))} />
             </label>
             {times.length > 1 && (
@@ -150,7 +163,7 @@ export function BackupSection() {
       <ErrorMessage message={loadError} />
       <StatusPanel status={status} error="" />
       <BackupNow onDone={loadStatus} />
-      {settings && <SettingsForm initial={settings} />}
+      {settings && <SettingsForm initial={settings} onSaved={loadStatus} />}
     </section>
   );
 }
