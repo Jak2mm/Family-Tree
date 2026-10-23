@@ -114,3 +114,55 @@ def test_unrelated_partners_and_siblings_still_work(full, db):
     assert link(full, b, c, "sibling").status_code == 201  # c gets b's parent a
     assert link(full, b, d, "spouse").status_code == 201
     assert count(db, "Partnership") == 1
+
+
+# Parent links that would make one partner the ancestor of the other
+
+def test_partners_cannot_be_parent_and_child(full, db):
+    a, b = person(full, "Joan"), person(full, "Ray")
+    assert link(full, a, b, "spouse").status_code == 201
+    for relation, first, second in (("parent", "Ray", "Joan"), ("child", "Joan", "Ray")):  # named parent first
+        r = link(full, b, a, relation)
+        assert r.status_code == 422
+        assert r.json()["detail"] == f"{first} and {second} are partners, so one cannot be the parent of the other."
+    assert count(db, "ParentLink") == 0
+
+
+def test_partner_cannot_become_an_ancestor_of_the_other_partner(full, db):
+    # the seed shape: Joan (with George) has children David and Susan; Ray is Joan's partner
+    george, joan, ray, david = (person(full, n) for n in ("George", "Joan", "Ray", "David"))
+    assert link(full, george, joan, "spouse").status_code == 201
+    assert link(full, joan, ray, "spouse").status_code == 201
+    assert link(full, george, david, "parent").status_code == 201
+    assert link(full, joan, david, "parent").status_code == 201
+    r = link(full, ray, george, "parent")  # Ray above George and David, none of whom is Ray's partner: allowed
+    assert r.status_code == 201
+    full.delete(f"/api/links/p:{ray}-{george}")
+    r = link(full, ray, joan, "parent")
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Ray and Joan are partners, so one cannot be the parent of the other."
+    grandpa = person(full, "Grandpa")
+    assert link(full, grandpa, ray, "parent").status_code == 201
+    r = link(full, grandpa, joan, "parent")  # Joan and her partner Ray then share a parent, but neither is the other's ancestor
+    assert r.status_code == 201
+    full.delete(f"/api/links/p:{grandpa}-{joan}")
+    r = link(full, ray, david, "parent", parent_kind="step")  # fine: David is not anyone's partner
+    assert r.status_code == 201
+    emma = person(full, "Emma")
+    assert link(full, david, emma, "spouse").status_code == 201
+    r = link(full, emma, george, "parent")  # Emma would become George's parent, so an ancestor of her own partner David
+    assert r.status_code == 422
+    assert r.json()["detail"] == "That would make Emma an ancestor of David, and they are recorded as partners."
+    assert full.get("/api/tree").status_code == 200
+
+
+def test_remarriage_with_half_siblings_is_still_accepted_and_undo_works(full, db):
+    x, y, z, c1, c2 = (person(full, n) for n in ("X", "Y", "Z", "C1", "C2"))
+    assert link(full, x, y, "spouse").status_code == 201
+    assert link(full, x, z, "spouse").status_code == 201
+    for parent, child in ((x, c1), (y, c1), (x, c2), (z, c2)):
+        assert link(full, parent, child, "parent").status_code == 201
+    assert full.delete(f"/api/links/p:{z}-{c2}").status_code == 204
+    assert link(full, z, c2, "parent").status_code == 201
+    gens = {p["id"]: p["generation"] for p in full.get("/api/tree").json()["people"]}
+    assert gens[x] == gens[y] == gens[z] == 0 and gens[c1] == gens[c2] == 1

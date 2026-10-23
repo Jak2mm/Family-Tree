@@ -55,6 +55,17 @@ def ancestors_of(conn: sqlite3.Connection, person_id: int) -> set[int]:
     return seen
 
 
+def descendants_of(conn: sqlite3.Connection, person_id: int) -> set[int]:
+    seen: set[int] = set()
+    todo = [person_id]
+    while todo:
+        for (child,) in conn.execute("SELECT child_id FROM ParentLink WHERE parent_id = ?", (todo.pop(),)):
+            if child not in seen:
+                seen.add(child)
+                todo.append(child)
+    return seen
+
+
 def name_of(conn: sqlite3.Connection, person_id: int) -> str:
     row = get_person_row(conn, person_id)
     return display_name(row["given_names"], row["family_name"])
@@ -68,6 +79,15 @@ def check_parent_link(conn: sqlite3.Connection, parent: int, child: int) -> None
         raise reject(f"{name_of(conn, parent)} is already recorded as a parent of {name_of(conn, child)}.")
     if child in ancestors_of(conn, parent):
         raise reject(f"{name_of(conn, child)} is an ancestor of {name_of(conn, parent)}, so this would make someone their own ancestor.")
+    # After the link, everyone from the parent upwards is an ancestor of everyone from the child downwards.
+    # As for new partnerships, no two partners may end up as ancestor and descendant.
+    above, below = {parent} | ancestors_of(conn, parent), {child} | descendants_of(conn, child)
+    for a, b in conn.execute("SELECT person_a_id, person_b_id FROM Partnership"):
+        for elder, younger in ((a, b), (b, a)):
+            if elder in above and younger in below:
+                if (elder, younger) == (parent, child):
+                    raise reject(f"{name_of(conn, parent)} and {name_of(conn, child)} are partners, so one cannot be the parent of the other.")
+                raise reject(f"That would make {name_of(conn, elder)} an ancestor of {name_of(conn, younger)}, and they are recorded as partners.")
 
 
 def too_young(conn: sqlite3.Connection, parent: int, child: int) -> bool:
