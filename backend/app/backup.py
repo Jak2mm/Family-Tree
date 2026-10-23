@@ -5,6 +5,7 @@ Photos are already on the NAS and are not copied. Command line:
     python -m app.backup restore <file>   replace the live database (stop the app first)
 """
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -30,7 +31,6 @@ DEFAULT_RETENTION = 14
 _PAIR = re.compile(r"^(family-tree-\d{8}-\d{6})(?:\.db|-export\.json)$")  # only files this app made
 _TABLES = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA))
 _lock = threading.Lock()  # one backup at a time (scheduler and "Back up now")
-_running: set[str] = set()  # live databases held open by this process
 
 
 @dataclass(frozen=True)
@@ -53,8 +53,19 @@ def live_path(settings: Settings) -> str:
     return os.path.join(settings.data_dir, "family_tree.db")
 
 
-def mark_running(settings: Settings, running: bool) -> None:
-    (_running.add if running else _running.discard)(os.path.abspath(live_path(settings)))
+def lock_path(settings: Settings) -> str:
+    return os.path.join(settings.data_dir, "family_tree.lock")
+
+
+def acquire_app_lock(settings: Settings):
+    """Take the exclusive lock a running app holds for its whole life; returns the open file (close it to release)."""
+    f = open(lock_path(settings), "a")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        raise RestoreError("The app is already running against this data folder. Stop it first.") from None
+    return f
 
 
 # ---- stored settings and state (Setting rows) ----
@@ -85,14 +96,29 @@ def load_schedule(conn: sqlite3.Connection) -> tuple[list[str], list[int] | None
 
 # ---- schedule ----
 
+def _slot_instant(day, text: str, zone) -> datetime:
+    """The UTC instant of a local wall-clock time. A time skipped by the clocks going forward means the first
+    moment after the gap; a time that happens twice (clocks going back) means its first occurrence."""
+    hour, minute = map(int, text.split(":"))
+    wall = datetime.combine(day, time(hour, minute))
+    instant = wall.replace(tzinfo=zone, fold=0).astimezone(timezone.utc)
+    if instant.astimezone(zone).replace(tzinfo=None) != wall:  # the time does not exist: step back to the end of the gap
+        while (instant - timedelta(minutes=1)).astimezone(zone).replace(tzinfo=None) >= wall:
+            instant -= timedelta(minutes=1)
+        while instant.astimezone(zone).replace(tzinfo=None) < wall:
+            instant += timedelta(minutes=1)
+    return instant
+
+
 def due_now(schedule: list[str], days: list[int] | None, last_run: datetime | None, now: datetime) -> bool:
-    """True once a scheduled time today has passed with no run since it. All datetimes are aware, in the configured zone."""
+    """True once a scheduled time today has passed with no run since it. All datetimes are aware; they are
+    compared as instants, never as wall-clock readings."""
+    zone = now.tzinfo
     if days is not None and now.weekday() not in days:
         return False
     for text in schedule:
-        hour, minute = text.split(":")
-        slot = datetime.combine(now.date(), time(int(hour), int(minute)), tzinfo=now.tzinfo)
-        if now >= slot and (last_run is None or last_run < slot):
+        slot = _slot_instant(now.date(), text, zone)
+        if now >= slot and (last_run is None or last_run.astimezone(timezone.utc) < slot):
             return True
     return False
 
@@ -102,11 +128,9 @@ def next_run(schedule: list[str], days: list[int] | None, now: datetime) -> date
         day = (now + timedelta(days=offset)).date()
         if days is not None and day.weekday() not in days:
             continue
-        for text in sorted(schedule):
-            hour, minute = text.split(":")
-            slot = datetime.combine(day, time(int(hour), int(minute)), tzinfo=now.tzinfo)
+        for slot in sorted(_slot_instant(day, text, now.tzinfo) for text in schedule):
             if slot > now:
-                return slot
+                return slot.astimezone(now.tzinfo)
     return None
 
 
@@ -120,7 +144,7 @@ def tick(settings: Settings, now: datetime) -> None:
     finally:
         conn.close()
     if isinstance(last, dict) and last.get("ok") is False:
-        due = local >= datetime.fromisoformat(last["at"]) + RETRY_AFTER  # a failed retry leaves the daily schedule alone
+        due = now >= datetime.fromisoformat(last["at"]).astimezone(timezone.utc) + RETRY_AFTER  # a failed retry leaves the daily schedule alone
     else:
         due = due_now(times, days, datetime.fromisoformat(last_ok) if last_ok else None, local)
     if due:
@@ -293,9 +317,19 @@ def _validate(path: str) -> None:
 
 def restore_backup(settings: Settings, path: str) -> None:
     """Replace the live database with a backup. The old one is kept next to it as <name>.before-restore."""
+    os.makedirs(settings.data_dir, exist_ok=True)
+    try:
+        lock = acquire_app_lock(settings)
+    except RestoreError:
+        raise RestoreError("The app is running. Please stop it first, then restore, then start it again.") from None
+    try:
+        _restore_locked(settings, path)
+    finally:
+        lock.close()
+
+
+def _restore_locked(settings: Settings, path: str) -> None:
     live = live_path(settings)
-    if os.path.abspath(live) in _running:
-        raise RestoreError("The app is running. Please stop it first, then restore, then start it again.")
     _validate(path)
     staged = live + ".restoring"
     try:
@@ -313,10 +347,10 @@ def restore_backup(settings: Settings, path: str) -> None:
             except sqlite3.DatabaseError:  # a damaged live database is a reason to restore, so copy it as it is
                 shutil.copy2(live, before + ".tmp")
             os.replace(before + ".tmp", before)
-        for extra in ("-wal", "-shm"):  # leftovers from the old database must not be applied to the new one
+        os.replace(staged, live)
+        for extra in ("-wal", "-shm"):  # only now: leftovers from the old database must not be applied to the new one
             if os.path.exists(live + extra):
                 os.remove(live + extra)
-        os.replace(staged, live)
     except OSError as e:
         raise RestoreError(f"The restore could not be completed ({e}). The original database was left in place.") from e
     finally:

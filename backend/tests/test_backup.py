@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import sqlite3
@@ -363,9 +364,87 @@ def test_restore_rejects_files_that_are_not_good_backups(live, tmp_path):
     assert not os.path.exists(live_path(live) + ".before-restore")
 
 
-def test_restore_refuses_while_the_app_is_running(settings, client):
-    with pytest.raises(RestoreError, match="stop"):
-        restore_backup(settings, "whatever.db")
+def lock_file(settings):
+    return os.path.join(settings.data_dir, "family_tree.lock")
+
+
+def test_restore_refuses_while_another_process_holds_the_app_lock(live):
+    result = run_backup(live, at(2))
+    before = Path(live_path(live)).read_bytes()
+    with open(lock_file(live), "w") as held:  # what a running app does
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(RestoreError, match="stop"):
+            restore_backup(live, result.path)
+    assert Path(live_path(live)).read_bytes() == before
+    restore_backup(live, result.path)  # lock released: now it works
+    assert people_count(live_path(live)) == 2
+
+
+def test_app_lifespan_holds_the_lock_until_shutdown(settings, app):
+    with TestClient(app):
+        with open(lock_file(settings), "w") as probe:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with open(lock_file(settings), "w") as probe:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released at shutdown
+
+
+def test_failed_final_rename_leaves_live_database_and_wal_untouched(live, monkeypatch):
+    result = run_backup(live, at(2))
+    holder = connect(live_path(live))  # keeps -wal/-shm alive, as a running app would
+    holder.execute("INSERT INTO Person (given_names) VALUES ('Carl')")
+    holder.commit()
+    wal, shm = live_path(live) + "-wal", live_path(live) + "-shm"
+    assert os.path.exists(wal) and os.path.exists(shm)
+    wal_bytes = Path(wal).read_bytes()
+    real = os.replace
+
+    def failing(src, dst, *a, **k):
+        if str(dst) == live_path(live):
+            raise OSError(5, "Input/output error")
+        return real(src, dst, *a, **k)
+
+    monkeypatch.setattr(os, "replace", failing)
+    with pytest.raises(RestoreError) as err:
+        restore_backup(live, result.path)
+    assert "original database was left in place" in str(err.value) and "Traceback" not in str(err.value)
+    assert os.path.exists(wal) and os.path.exists(shm) and Path(wal).read_bytes() == wal_bytes
+    assert holder.execute("SELECT COUNT(*) FROM Person").fetchone()[0] == 3
+    holder.close()
+    assert not os.path.exists(live_path(live) + ".restoring")
+
+
+# ---- daylight saving (Australia/Sydney: forward 2026-10-04, back 2027-04-04) ----
+
+def run_night(settings, first_day, start_utc, times, hours=6):
+    """13 earlier good daily backups, then one tick a minute across the night. Returns (earlier, new) backup names."""
+    conn = connect(live_path(settings))
+    conn.execute("INSERT INTO Setting (key, value) VALUES ('backup_times', ?)", (json.dumps(times),))
+    conn.commit()
+    conn.close()
+    sydney = ZoneInfo("Australia/Sydney")
+    hour, minute = map(int, times[0].split(":"))
+    for i in range(13, 0, -1):
+        day = first_day - timedelta(days=i)
+        assert backup.run_and_record(settings, datetime(day.year, day.month, day.day, hour, minute, tzinfo=sydney)).ok
+    earlier = set(backups_in(settings))
+    assert len(earlier) == 13
+    for m in range(hours * 60):
+        tick(settings, start_utc + timedelta(minutes=m))
+    return earlier, set(backups_in(settings)) - earlier, set(backups_in(settings))
+
+
+SPRING = (datetime(2026, 10, 4).date(), datetime(2026, 10, 3, 14, 0, tzinfo=UTC))  # 00:00 AEST on the 4th
+FALL = (datetime(2027, 4, 4).date(), datetime(2027, 4, 3, 13, 0, tzinfo=UTC))      # 00:00 AEDT on the 4th
+
+
+@pytest.mark.parametrize("day,start", [SPRING, FALL], ids=["spring-forward", "fall-back"])
+@pytest.mark.parametrize("slot", ["02:30", "02:00"])
+def test_scheduled_time_in_a_dst_change_runs_exactly_once_and_keeps_history(live, day, start, slot):
+    sydney = replace(live, timezone="Australia/Sydney")
+    earlier, new, everything = run_night(sydney, day, start, [slot], hours=8)
+    assert len(new) == 1, sorted(new)
+    assert earlier <= everything and len(everything) == 14
 
 
 # ---- CLI ----

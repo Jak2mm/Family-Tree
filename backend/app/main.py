@@ -20,7 +20,7 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = True) -
         conn = connect(os.path.join(settings.data_dir, "family_tree.db"))
         init_db(conn)
         conn.close()
-        backup.mark_running(settings, True)
+        lock = backup.acquire_app_lock(settings)
         stop = threading.Event()
         thread = None
         if start_scheduler:
@@ -36,7 +36,7 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = True) -
             stop.set()
             if thread:
                 thread.join(timeout=10)
-            backup.mark_running(settings, False)
+            lock.close()
 
     app = FastAPI(title="Family Tree", lifespan=lifespan)
     app.state.settings = settings
