@@ -42,7 +42,7 @@ Room left for them: places are stored as text now and can later be linked to map
 
 ## 3. Data model
 
-All dates are stored as text with explicit precision (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) so a person can have just a birth year.
+All dates are stored as text with explicit precision (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) so a person can have just a birth year. Each user chooses how dates are shown and typed: `DD-MM-YYYY` (the default, as used in Australia) or `YYYY-MM-DD`. Partial dates display as `MM-YYYY` or `YYYY`. Only the front end converts; stored data and the API always use the year-first form.
 
 - **Person**: id, given names, family name, birth date, birth place, death date, occupation, bio (text), profile photo id (nullable), created/updated timestamps.
 - **PlaceLived**: id, person id, place, from year (optional), to year (optional).

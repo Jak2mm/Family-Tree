@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Backend is Python with FastAPI; database is a SQLite file in `/data`; photos in `/photos`; backups in `/backups`.
-- Dates are text with precision: `YYYY`, `YYYY-MM` or `YYYY-MM-DD`.
+- Dates are stored and sent by the API as text with precision: `YYYY`, `YYYY-MM` or `YYYY-MM-DD`. Each user chooses how dates are shown and typed: `DD-MM-YYYY` (default, Australian) or `YYYY-MM-DD`. Only the front end converts; partial dates show as `MM-YYYY` or `YYYY`.
 - Passwords hashed with argon2id; sessions use HttpOnly cookies with CSRF protection and login rate limiting; no public sign-up; first run creates the admin.
 - Permissions are read, add, edit, delete, checked on the server for every endpoint. Add = new people/photos/links, edit = change existing records, delete = remove.
 - Uploads: image types only, checked by content; size cap; re-encoded (metadata stripped, thumbnail made); stored with random file names; served only to users with read permission.
@@ -110,9 +110,10 @@ Dockerfile, docker-compose.yml, update.sh, README.md, requirements.txt, requirem
 
 **Interfaces:**
 - Consumes: `require`, `parse_date`, `audit.record`.
-- Produces: `GET /api/people` (id, display name, birth/death dates, profile photo id), `POST /api/people` (add), `GET /api/people/{id}` (full profile incl. places, parents, children, siblings, partnerships, albums — relations filled in by Task 4), `PATCH /api/people/{id}` (edit), `DELETE /api/people/{id}?links=refuse|remove` (delete; Task 4 supplies the link handling), `POST /api/people/{id}/places`, `DELETE /api/people/{id}/places/{place_id}`. `PUT /api/me/preferences` stores `{layout: 1-4, card_fields: [...]}`.
+- Produces: `GET /api/people` (id, display name, birth/death dates, profile photo id), `POST /api/people` (add), `GET /api/people/{id}` (full profile incl. places, parents, children, siblings, partnerships, albums — relations filled in by Task 4), `PATCH /api/people/{id}` (edit), `DELETE /api/people/{id}?links=refuse|remove` (delete; Task 4 supplies the link handling), `POST /api/people/{id}/places`, `DELETE /api/people/{id}/places/{place_id}`. `PUT /api/me/preferences` stores `{layout: 1-4, card_fields: [...], date_format: "DD-MM-YYYY" | "YYYY-MM-DD"}` (default `"DD-MM-YYYY"`).
 
 - [ ] **Step 1: Write failing tests**
+  - Preferences: a new user's `date_format` is `"DD-MM-YYYY"`; saving `"YYYY-MM-DD"` round-trips; any other value (for example `"MM-DD-YYYY"`) returns 422.
   - Create with only a birth year `"1932"` succeeds; birth `"1932-02-30"` returns 422 with a plain message; death earlier than birth returns 422.
   - Names with apostrophes, accents and 200 characters round-trip unchanged; bio of 20,000 characters round-trips.
   - Read-only user gets 403 on POST/PATCH/DELETE; a user with `add` but not `edit` can create but not PATCH.
@@ -198,14 +199,14 @@ Dockerfile, docker-compose.yml, update.sh, README.md, requirements.txt, requirem
 ### Task 7: Front end foundation, login, people and profile pages
 
 **Files:**
-- Create: `frontend/` (Vite React TypeScript app), `frontend/src/api.ts`, `frontend/src/components/{Login,PeopleList,ProfilePage,PersonForm}.tsx`, `frontend/public/manifest.webmanifest` and icons
+- Create: `frontend/` (Vite React TypeScript app), `frontend/src/api.ts`, `frontend/src/dates.ts` (+ `dates.test.ts`), `frontend/src/components/{Login,PeopleList,ProfilePage,PersonForm}.tsx`, `frontend/public/manifest.webmanifest` and icons
 - Modify: `backend/app/main.py` (serve `frontend/dist` and fall back to `index.html`)
 
 **Interfaces:**
 - Consumes: all `/api` endpoints from Tasks 2–5.
-- Produces: `api` object in `api.ts` with typed functions (`login`, `me`, `listPeople`, `getPerson`, `savePerson`, `deletePerson`, `uploadPhoto`, `createLink`, `undoLink`, `getTree`, backup and settings calls) that attach the CSRF header; `useMe()` hook exposing `{user, can(perm)}`.
+- Produces: `api` object in `api.ts` with typed functions (`login`, `me`, `listPeople`, `getPerson`, `savePerson`, `deletePerson`, `uploadPhoto`, `createLink`, `undoLink`, `getTree`, backup and settings calls) that attach the CSRF header; `useMe()` hook exposing `{user, can(perm)}`; `type DateFormat = "DD-MM-YYYY" | "YYYY-MM-DD"`; `formatDate(iso: string, fmt: DateFormat): string`; `parseDateInput(text: string, fmt: DateFormat): string` (returns the stored ISO text, throws `Error` with a plain message when invalid). A date format picker lives in the user's own preferences.
 
-- [ ] **Step 1: Write failing tests** (vitest + testing-library): `Login` shows the server's plain-language error on 401; `ProfilePage` hides edit/delete controls when `can("edit")` and `can("delete")` are false and shows them otherwise; `PersonForm` accepts "1932" as a birth date and shows the server's message for an invalid date.
+- [ ] **Step 1: Write failing tests** (vitest + testing-library): `dates.test.ts`: `formatDate("1950-03-07","DD-MM-YYYY")` is `"07-03-1950"`; `formatDate("1950-03","DD-MM-YYYY")` is `"03-1950"`; `formatDate("1950","DD-MM-YYYY")` is `"1950"`; `formatDate("1950-03-07","YYYY-MM-DD")` is `"1950-03-07"`; `parseDateInput("07-03-1950","DD-MM-YYYY")` is `"1950-03-07"` (7 March, not 3 July); `parseDateInput("03-1950","DD-MM-YYYY")` is `"1950-03"`; `parseDateInput("1950-03-07","DD-MM-YYYY")` is also `"1950-03-07"` (a leading four-digit year is always read as year first); `parseDateInput("31-02-1950","DD-MM-YYYY")` throws. Switching the picker to `YYYY-MM-DD` changes how an existing profile shows its dates without any API change. `Login` shows the server's plain-language error on 401; `ProfilePage` hides edit/delete controls when `can("edit")` and `can("delete")` are false and shows them otherwise; `PersonForm` accepts "1932" as a birth date and shows the server's message for an invalid date.
 - [ ] **Step 2: Run** `cd frontend && npx vitest run` — Expected: FAIL.
 - [ ] **Step 3: Implement** the components; profile page shows the fields listed in spec section 6; the first-run screen calls `/api/setup` when `/api/me` says no users exist.
 - [ ] **Step 4: Run** `npx vitest run && npx tsc --noEmit` — Expected: PASS, no type errors.
