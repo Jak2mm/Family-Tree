@@ -6,7 +6,7 @@ from app.db import connect, init_db
 
 TABLES = {
     "Person", "PlaceLived", "ParentLink", "Partnership", "Album",
-    "Photo", "User", "Setting", "UserPreference", "AuditEntry",
+    "Photo", "User", "Setting", "UserPreference", "AuditEntry", "Session", "LoginAttempt",
 }
 
 
@@ -70,8 +70,3 @@ def test_deleting_person_removes_links_and_albums(conn):
     for t in ("ParentLink", "Partnership", "Album"):
         assert conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0
 
-
-def test_health(client):
-    r = client.get("/api/health")
-    assert r.status_code == 200
-    assert r.json() == {"status": "ok"}

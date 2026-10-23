@@ -89,6 +89,23 @@ CREATE TABLE IF NOT EXISTS AuditEntry (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
+CREATE TABLE IF NOT EXISTS Session (
+    token TEXT PRIMARY KEY,  -- SHA-256 of the cookie token, never the token itself
+    user_id INTEGER NOT NULL REFERENCES User(id) ON DELETE CASCADE,
+    csrf_token TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS LoginAttempt (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL,
+    ip TEXT NOT NULL,
+    attempted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_user ON Session(user_id);
+CREATE INDEX IF NOT EXISTS idx_loginattempt_pair ON LoginAttempt(username, ip);
 CREATE INDEX IF NOT EXISTS idx_parentlink_child ON ParentLink(child_id);
 CREATE INDEX IF NOT EXISTS idx_partnership_a ON Partnership(person_a_id);
 CREATE INDEX IF NOT EXISTS idx_partnership_b ON Partnership(person_b_id);
@@ -98,8 +115,8 @@ CREATE INDEX IF NOT EXISTS idx_placelived_person ON PlaceLived(person_id);
 """
 
 
-def connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+def connect(path: str, check_same_thread: bool = True) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
