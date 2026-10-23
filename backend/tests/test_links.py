@@ -288,11 +288,11 @@ def test_profile_parent_link_ids_can_be_undone(full, db):
 
 
 def test_link_writes_are_audited(full, db):
-    a, b = person(full, "A"), person(full, "B")
+    a, b, c = person(full, "A"), person(full, "B"), person(full, "C")
     db.execute("DELETE FROM AuditEntry")
     db.commit()
     parent_id = link(full, a, b, "parent").json()["ids"][0]
-    partner_id = link(full, a, b, "spouse").json()["ids"][0]
+    partner_id = link(full, a, c, "spouse").json()["ids"][0]
     full.delete(f"/api/links/{parent_id}")
     full.delete(f"/api/links/{partner_id}")
     assert audit_rows(db) == [
@@ -320,13 +320,13 @@ def test_read_only_user_cannot_write_links(make_user, login_as, full, db):
 
 
 def test_add_without_edit_cannot_undo_and_edit_without_add_cannot_link(make_user, login_as, full):
-    a, b = person(full, "A"), person(full, "B")
+    a, b, c = person(full, "A"), person(full, "B"), person(full, "C")
     link_id = link(full, a, b, "parent").json()["ids"][0]
     adder = login_as(make_user({"read", "add"}))
     editor = login_as(make_user({"read", "edit"}))
     assert adder.delete(f"/api/links/{link_id}").status_code == 403
-    assert link(editor, a, b, "spouse").status_code == 403
-    assert link(adder, a, b, "spouse").status_code == 201
+    assert link(editor, a, c, "spouse").status_code == 403
+    assert link(adder, a, c, "spouse").status_code == 201
     assert editor.delete(f"/api/links/{link_id}").status_code == 204
 
 
@@ -460,9 +460,9 @@ def test_failed_remove_rolls_back_everything(full, db, monkeypatch):
 
     from app import audit
 
-    a, b = person(full, "A"), person(full, "B")
+    a, b, c = person(full, "A"), person(full, "B"), person(full, "C")
     link(full, a, b, "parent")
-    link(full, a, b, "spouse")
+    link(full, a, c, "spouse")  # a partner who is not a's own child
     add_media(db, a)
 
     def boom(*args, **kwargs):
@@ -546,3 +546,26 @@ def test_partnership_edit_needs_edit_permission(full, db, make_user, login_as):
     adder = login_as(make_user({"read", "add"}))
     assert adder.patch(f"/api/links/c:{pid}", json={"kind": "married"}).status_code == 403
     assert db.execute("SELECT kind FROM Partnership").fetchone()[0] == "partner"
+
+
+# Partners who are ancestor and descendant
+
+def test_partner_link_to_own_grandchild_is_rejected(full, db):
+    arthur, george, oliver = person(full, "Arthur"), person(full, "George"), person(full, "Oliver")
+    assert link(full, arthur, george, "parent").status_code == 201
+    assert link(full, george, oliver, "parent").status_code == 201
+    for a, b in ((arthur, oliver), (oliver, arthur)):
+        r = link(full, a, b, "spouse")
+        assert r.status_code == 422
+        assert r.json()["detail"] == "Arthur is an ancestor of Oliver, so they cannot be recorded as partners."
+    assert link(full, george, arthur, "spouse").status_code == 422
+    assert count(db, "Partnership") == 0
+    assert full.get("/api/tree").json()["people"][2]["generation"] == 2
+
+
+def test_unrelated_partners_and_siblings_still_work(full, db):
+    a, b, c, d = person(full, "A"), person(full, "B"), person(full, "C"), person(full, "D")
+    assert link(full, a, b, "parent").status_code == 201
+    assert link(full, b, c, "sibling").status_code == 201  # c gets b's parent a
+    assert link(full, b, d, "spouse").status_code == 201
+    assert count(db, "Partnership") == 1

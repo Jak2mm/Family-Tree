@@ -101,6 +101,9 @@ def create_partnership(conn: sqlite3.Connection, user: CurrentUser, body: NewLin
         {"a": body.a, "b": body.b},
     ).fetchone():
         raise reject(f"{name_of(conn, body.a)} and {name_of(conn, body.b)} are already recorded as partners.")
+    for elder, younger in ((body.a, body.b), (body.b, body.a)):
+        if elder in ancestors_of(conn, younger):
+            raise reject(f"{name_of(conn, elder)} is an ancestor of {name_of(conn, younger)}, so they cannot be recorded as partners.")
     cur = conn.execute(
         "INSERT INTO Partnership (person_a_id, person_b_id, kind, start_year) VALUES (?, ?, ?, ?)",
         (body.a, body.b, body.partnership_kind, body.start_year),
