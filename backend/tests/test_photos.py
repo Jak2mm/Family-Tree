@@ -459,3 +459,35 @@ def test_write_failure_gives_503_and_leaves_nothing(full, album, settings, db, m
     r = upload(full, aid, make_image())
     assert r.status_code == 503
     assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+@pytest.mark.parametrize("path", ["/api/albums/+1/photos", "/api/albums/%2B1/photos", "/api/albums/%201/photos", "/api/albums/1_0/photos", "/api/albums/1/photos/"])
+def test_over_limit_content_length_rejected_for_odd_paths(full, album, settings, db, path):
+    limit = photos.MAX_UPLOAD_BYTES + photos.FORM_OVERHEAD
+    r = full.post(path, content=b"x", headers={"Content-Length": str(limit + 1), "Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 413
+    assert photo_count(db) == 0 and stored_files(settings) == []
+
+
+def test_non_integer_content_length_falls_back_to_counting():
+    import asyncio
+
+    limit = photos.UploadSizeLimit.limit
+    handled, sent = [], []
+
+    async def inner(scope, receive, send):
+        handled.append(True)
+        while (await receive())["type"] == "http.request":
+            pass
+
+    chunks = [{"type": "http.request", "body": b"\0" * (limit // 2 + 1), "more_body": True}] * 3
+
+    async def receive():
+        return chunks.pop(0) if chunks else {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "POST", "path": "/api/albums/1/photos", "headers": [(b"content-length", b"abc")]}
+    asyncio.run(photos.UploadSizeLimit(inner)(scope, receive, send))
+    assert sent[0]["status"] == 413

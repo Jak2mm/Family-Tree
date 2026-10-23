@@ -28,7 +28,7 @@ MAX_PIXELS = 50_000_000
 Image.MAX_IMAGE_PIXELS = 100_000_000
 FORM_OVERHEAD = 64 * 1024
 TOO_LARGE = "That picture is too large. The limit is 15 MB."
-UPLOAD_PATH = re.compile(r"^/api/albums/\d+/photos$")
+UPLOAD_PATH = re.compile(r"^/api/albums/[^/]+/photos/?$")
 
 
 class PictureRejected(ValueError):
@@ -314,12 +314,13 @@ class UploadSizeLimit:
         reject = JSONResponse({"detail": TOO_LARGE}, status_code=413)
         if declared is not None:
             try:
-                too_big = int(declared) > self.limit
+                length = int(declared)
             except ValueError:
-                too_big = False
-            if too_big:
-                return await reject(scope, receive, send)
-            return await self.app(scope, receive, send)
+                length = None  # not a valid integer: count the bytes instead
+            if length is not None:
+                if length > self.limit:
+                    return await reject(scope, receive, send)
+                return await self.app(scope, receive, send)
 
         total, rejected = 0, False
 
