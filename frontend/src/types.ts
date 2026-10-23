@@ -100,8 +100,20 @@ export interface NewLink {
   parent_id?: number | null;
 }
 
+export interface TreePerson {
+  id: number;
+  name: string;
+  birth_year: number | null;
+  death_year: number | null;
+  generation: number;
+  photo_id: number | null;
+  occupation: string | null;
+  birth_date: string | null;
+  death_date: string | null;
+}
+
 export interface TreeData {
-  people: { id: number; name: string; birth_year: number | null; death_year: number | null; generation: number; photo_id: number | null }[];
+  people: TreePerson[];
   parent_links: [number, number][];
   partnerships: [number, number][];
 }

@@ -46,3 +46,15 @@ def test_two_partnerships_with_children_from_each():
 def test_cycle_does_not_hang():
     gens = compute_generations([1, 2], [(1, 2), (2, 1)], [])
     assert set(gens) == {1, 2}
+
+
+def test_tree_people_carry_occupation_and_full_dates(make_user, login_as):
+    c = login_as(make_user({"read", "add"}))
+    r = c.post("/api/people", json={"given_names": "Ann", "birth_date": "1950-03-07", "death_date": "2010", "occupation": "Teacher"})
+    assert r.status_code == 201, r.text
+    c.post("/api/people", json={"given_names": "Bob"})
+    people = c.get("/api/tree").json()["people"]
+    ann, bob = people
+    assert (ann["occupation"], ann["birth_date"], ann["death_date"]) == ("Teacher", "1950-03-07", "2010")
+    assert (ann["birth_year"], ann["death_year"]) == (1950, 2010)
+    assert (bob["occupation"], bob["birth_date"], bob["death_date"]) == (None, None, None)

@@ -43,7 +43,7 @@ def year_of(date: str | None) -> int | None:
 @router.get("/tree")
 def read_tree(_: CurrentUser = Depends(require("read")), conn: sqlite3.Connection = Depends(get_conn)):
     rows = conn.execute(
-        "SELECT id, given_names, family_name, birth_date, death_date, profile_photo_id FROM Person ORDER BY id"
+        "SELECT id, given_names, family_name, birth_date, death_date, occupation, profile_photo_id FROM Person ORDER BY id"
     ).fetchall()
     parent_links = [(r["parent_id"], r["child_id"]) for r in conn.execute("SELECT parent_id, child_id FROM ParentLink ORDER BY rowid")]
     partnerships = [(r["person_a_id"], r["person_b_id"]) for r in conn.execute("SELECT person_a_id, person_b_id FROM Partnership ORDER BY id")]
@@ -57,6 +57,9 @@ def read_tree(_: CurrentUser = Depends(require("read")), conn: sqlite3.Connectio
                 "death_year": year_of(r["death_date"]),
                 "generation": gen[r["id"]],
                 "photo_id": r["profile_photo_id"],
+                "occupation": r["occupation"],
+                "birth_date": r["birth_date"],
+                "death_date": r["death_date"],
             }
             for r in rows
         ],
