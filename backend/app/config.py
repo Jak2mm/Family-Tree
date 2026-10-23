@@ -30,10 +30,19 @@ def load_settings() -> Settings:
 def _persisted_secret(data_dir: str) -> str:
     path = Path(data_dir) / "secret_key"
     if path.exists():
-        return path.read_text().strip()
+        existing = path.read_text().strip()
+        if existing:
+            return existing
     path.parent.mkdir(parents=True, exist_ok=True)
     key = secrets.token_hex(32)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Another worker created it first (or it is empty): use theirs if usable.
+        existing = path.read_text().strip()
+        if existing:
+            return existing
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(key)
     return key
