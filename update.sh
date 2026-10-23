@@ -13,19 +13,26 @@ say() { printf '\n== %s\n' "$*"; }
 fail() { printf '\nSTOPPED: %s\n' "$*" >&2; exit 1; }
 
 PULL=0
-[ "${1:-}" = "--pull" ] && PULL=1
+case "${1:-}" in
+    "") ;;
+    --pull) PULL=1 ;;
+    *) fail "I do not know what '$1' means. Use ./update.sh on its own, or ./update.sh --pull to fetch new code with git first." ;;
+esac
+[ "$#" -le 1 ] || fail "Too many options. Use ./update.sh on its own, or ./update.sh --pull."
 
 [ -f .env ] || fail "There is no .env file here. Copy .env.example to .env and fill it in first (see README.md)."
 docker compose version >/dev/null 2>&1 || fail "Docker Compose is not available. Is Docker installed and running?"
 
+BACKUP_FAILED="The backup failed, so nothing was changed. Fix the problem (is the NAS switched on and mounted? see README.md, Troubleshooting) and run ./update.sh again."
+
 say "Step 1 of 5: taking a backup first"
 if [ -n "$(docker compose ps --status running --quiet app 2>/dev/null)" ]; then
-    # Goes through the same start-up check as the app, so it will not write to an unmounted NAS.
-    if ! docker compose exec -T app ft-entrypoint python -m app.backup run; then
-        fail "The backup failed, so nothing was changed. Fix the problem (is the NAS switched on and mounted? see README, Troubleshooting) and run ./update.sh again."
-    fi
+    docker compose exec -T app python -m app.backup run || fail "$BACKUP_FAILED"
+elif docker image inspect family-tree:latest >/dev/null 2>&1; then
+    echo "The app is stopped, so the backup is taken with a one-off copy of it."
+    docker compose run --rm --no-deps app python -m app.backup run || fail "$BACKUP_FAILED"
 else
-    echo "The app is not running right now, so there is nothing to back up. Carrying on."
+    echo "This looks like a first install (the app has never been built here), so there is nothing to back up yet. Carrying on."
 fi
 
 if [ "$PULL" -eq 1 ]; then
@@ -39,9 +46,9 @@ docker compose build --pull || fail "The build failed. The app is still running 
 say "Step 3 of 5: starting the new version"
 docker compose up -d || fail "Docker could not start the app. Run 'docker compose logs app' to see why."
 
-say "Step 4 of 5: waiting for the app to wake up"
+say "Step 4 of 5: waiting for the app to wake up (up to 90 seconds)"
 status=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 45); do
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' family-tree 2>/dev/null || true)"
     [ "$status" = "healthy" ] && break
     sleep 2
@@ -53,7 +60,7 @@ if [ "$status" = "healthy" ]; then
     echo "All good. The app is running the new version."
     docker compose ps
 else
-    echo "The app did not report healthy within a minute. Recent log lines:" >&2
+    echo "The app did not report healthy in time. Recent log lines:" >&2
     docker compose logs --tail 20 app >&2 || true
     fail "Something is wrong. See README.md, Troubleshooting. Your data and the backup from step 1 are safe."
 fi

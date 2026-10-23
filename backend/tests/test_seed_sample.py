@@ -63,3 +63,45 @@ def test_dates_are_valid_partial_dates_and_deaths_follow_births():
             assert p[field] is None or re.fullmatch(r"\d{4}(-\d{2}(-\d{2})?)?", p[field])
         if p["birth_date"] and p["death_date"]:
             assert p["death_date"] >= p["birth_date"]
+
+
+def _serve(settings):
+    import socket
+    import threading
+    import time
+    import uvicorn
+    from app.main import create_app
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, start_scheduler=False), host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        time.sleep(0.05)
+    return server, thread, f"http://127.0.0.1:{port}"
+
+
+def test_seed_keeps_its_session_when_the_cookie_is_secure_over_plain_http(settings):
+    import dataclasses
+    import json
+    import urllib.request
+
+    server, thread, url = _serve(dataclasses.replace(settings, cookie_secure=True))
+    try:
+        req = urllib.request.Request(url + "/api/setup", method="POST", headers={"Content-Type": "application/json"},
+                                     data=json.dumps({"username": "admin", "password": "a long enough password"}).encode())
+        urllib.request.urlopen(req).read()
+        api = seed.Api(url)
+        assert seed.seed(api, "admin", "a long enough password", force=False) == len(SAMPLE["people"])
+        assert len(api.call("GET", "/api/people")) == len(SAMPLE["people"])
+        try:
+            seed.seed(seed.Api(url), "admin", "a long enough password", force=False)
+        except SystemExit as e:
+            assert "already has" in str(e)
+        else:
+            raise AssertionError("second run should refuse")
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

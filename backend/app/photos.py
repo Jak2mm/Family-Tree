@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 
 from app import audit
 from app.security import CurrentUser, get_conn, require
-
+from app.config import Settings, zone_for
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
@@ -39,7 +39,9 @@ class NewAlbum(BaseModel):
     title: str = Field(min_length=1, max_length=100)
 
 
-def nas_available(photos_dir: str) -> bool:
+def nas_available(photos_dir: str, marker: str | None = None) -> bool:
+    if marker and not os.path.isfile(marker):  # share not mounted: the folder may be an empty local one
+        return False
     return os.path.isdir(photos_dir) and os.access(photos_dir, os.W_OK)
 
 
@@ -163,7 +165,7 @@ def add_photo(
     photos_dir = request.app.state.settings.photos_dir
     if conn.execute("SELECT 1 FROM Album WHERE id = ?", (album_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="That album could not be found.")
-    if not nas_available(photos_dir):
+    if not nas_available(photos_dir, request.app.state.settings.nas_marker):
         raise HTTPException(status_code=503, detail=OFFLINE)
     chunks, size = [], 0
     while chunk := file.file.read(64 * 1024):

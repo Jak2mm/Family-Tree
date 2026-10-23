@@ -17,7 +17,6 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from http.cookiejar import CookieJar
 
 # key: (given names, family name, birth date, death date, occupation, birth place)
 PEOPLE = {
@@ -89,17 +88,25 @@ def build_sample() -> dict:
 class Api:
     def __init__(self, base: str):
         self.base = base.rstrip("/")
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+        # The session cookie is kept by hand: a normal cookie jar refuses to send a "Secure" cookie over
+        # plain http://localhost, which is how this script usually talks to an app that uses COOKIE_SECURE=true.
+        self.cookie = ""
         self.csrf = ""
 
     def call(self, method: str, path: str, body=None):
         data = None if body is None else json.dumps(body).encode()
         headers = {"Content-Type": "application/json"} if data else {}
+        if self.cookie:
+            headers["Cookie"] = self.cookie
         if method != "GET":
             headers["X-CSRF-Token"] = self.csrf
         req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         try:
-            with self.opener.open(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                for line in resp.headers.get_all("Set-Cookie") or []:
+                    pair = line.split(";", 1)[0].strip()
+                    if pair.startswith("session=") and pair != "session=":
+                        self.cookie = pair
                 text = resp.read().decode()
                 return json.loads(text) if text else None
         except urllib.error.HTTPError as e:

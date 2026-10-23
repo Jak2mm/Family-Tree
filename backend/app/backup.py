@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
-from app.config import Settings, load_settings, zone_for
+from app.config import Settings, load_settings, marker_missing, zone_for
 from app.db import SCHEMA, connect
 
 log = logging.getLogger(__name__)
@@ -184,7 +184,9 @@ def run_and_record(settings: Settings, now: datetime) -> BackupResult:
         return result
 
 
-def _folder_problem(folder: str) -> str | None:
+def _folder_problem(folder: str, settings: Settings | None = None) -> str | None:
+    if settings is not None and marker_missing(settings):
+        return "The backups folder is not available. Check that the NAS is switched on and connected."
     if not os.path.exists(folder):
         return "The backups folder is not available. Check that the NAS is switched on and connected."
     if not os.path.isdir(folder):
@@ -252,7 +254,7 @@ def _prune(folder: str, keep: int) -> None:
 def run_backup(settings: Settings, now: datetime) -> BackupResult:
     """Back up the live database into the backups folder. Never raises: problems come back as ok=False."""
     live, folder = live_path(settings), settings.backups_dir
-    problem = _folder_problem(folder)
+    problem = _folder_problem(folder, settings)
     if problem is None and not os.path.isfile(live):
         problem = "The family tree database could not be found."
     if problem:

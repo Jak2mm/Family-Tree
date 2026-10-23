@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app import audit
 from app.backup import (RETRY_AFTER, load_schedule, live_path, next_run, read_setting, run_and_record, write_setting)
-from app.config import Settings, zone_for
+from app.config import Settings, marker_missing, zone_for
 from app.db import connect
 from app.security import CurrentUser, get_conn, require
 
@@ -89,7 +89,7 @@ def backup_status(request: Request, _: CurrentUser = Depends(require("admin")), 
     times, days, _keep = load_schedule(conn)
     last = read_setting(conn, "backup_last")
     last = last if isinstance(last, dict) else {}
-    nas = os.path.isdir(settings.backups_dir) and os.access(settings.backups_dir, os.W_OK)
+    nas = not marker_missing(settings) and os.path.isdir(settings.backups_dir) and os.access(settings.backups_dir, os.W_OK)
     failing = last.get("ok") is False
     retry_at = datetime.fromisoformat(last["at"]) + RETRY_AFTER if failing else None
     upcoming = next_run(times, days, local)

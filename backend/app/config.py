@@ -16,6 +16,7 @@ class Settings:
     secret_key: str
     timezone: str = "UTC"
     cookie_secure: bool = False
+    nas_marker: str | None = None
 
 
 def load_settings() -> Settings:
@@ -26,6 +27,8 @@ def load_settings() -> Settings:
     mounts. If no secret key is given, one is generated once and kept in
     the data folder so sessions survive restarts. FAMILY_TREE_COOKIE_SECURE=true marks the sign-in
     cookie HTTPS-only (use it when the app is reached over https, e.g. tailscale serve).
+    FAMILY_TREE_NAS_MARKER (default unset = no check) names a file that exists only on the mounted NAS;
+    while it is missing, photos and backups are treated as offline.
     """
     data_dir = os.environ.get("FAMILY_TREE_DATA_DIR", "./data")
     photos_dir = os.environ.get("FAMILY_TREE_PHOTOS_DIR", os.path.join(data_dir, "photos"))
@@ -38,7 +41,14 @@ def load_settings() -> Settings:
         log.warning("FAMILY_TREE_TIMEZONE %r is not a known time zone; using UTC.", timezone)
         timezone = "UTC"
     cookie_secure = os.environ.get("FAMILY_TREE_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes", "on")
-    return Settings(data_dir, photos_dir, backups_dir, secret_key, timezone, cookie_secure)
+    nas_marker = os.environ.get("FAMILY_TREE_NAS_MARKER") or None
+    return Settings(data_dir, photos_dir, backups_dir, secret_key, timezone, cookie_secure, nas_marker)
+
+
+def marker_missing(settings: Settings) -> bool:
+    """True if a NAS marker file is configured and absent: the share is probably not mounted, so the
+    photos and backups folders may be empty folders on local disk and must not be written to."""
+    return bool(settings.nas_marker) and not os.path.isfile(settings.nas_marker)
 
 
 def zone_for(settings: Settings) -> ZoneInfo:

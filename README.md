@@ -38,7 +38,7 @@ parts written in capitals or like `192.168.1.10`.
    | `TIMEZONE` | Your time zone, for example `Australia/Sydney`. Backups run at the times you choose in this time zone |
    | `BIND_ADDRESS` | Leave as `127.0.0.1` (this VM only) if you will use `tailscale serve` (step 4). See the note there for the alternative |
    | `COOKIE_SECURE` | `true` if you will open the app through the `https://` address from step 4. Otherwise `false` |
-   | `PUID`, `PGID` | Leave `1000` unless the NAS refuses to let the app write (see "Permissions" below) |
+   | `PUID`, `PGID` | Leave `1000` unless the NAS refuses to let the app write (see step 2d) |
 
    Save the file. The `.env` file is private to this VM; do not share it.
 
@@ -99,22 +99,38 @@ mkdir /mnt/nas/family-tree/backups
 touch /mnt/nas/family-tree/.family-tree-nas-ok
 ```
 
-The empty file `.family-tree-nas-ok` is a safety marker. When the app starts it checks for it. If it
-is missing, the NAS is probably not mounted and the folders are just empty folders on the VM's disk.
-The app then switches photos and backups **off** (showing the "NAS offline" warning) rather than
-quietly saving them in the wrong place where they would vanish when the NAS comes back.
+The empty file `.family-tree-nas-ok` is a safety marker. The app looks for it every time it saves a photo or a
+backup. If it is missing, the NAS is probably not mounted and the folders are just empty folders on the VM's disk.
+The app then treats the NAS as **offline** (the tree, profiles and text keep working; uploads and backups say the
+NAS is offline) rather than quietly saving into the wrong place where the files would vanish when the NAS comes back.
+When the NAS is mounted again the app notices **by itself**; you do not need to restart it.
 
-### Permissions (only if saving fails)
+### 2d. Make sure the app is allowed to write there (do this BEFORE the first start)
 
 The app does not run as the all-powerful root user. It runs as user number `PUID` and group number
-`PGID` from `.env` (default 1000). That user must be allowed to write to the NAS folders.
+`PGID` from `.env` (default 1000). That user must be allowed to write to the NAS folders, and **the numbers
+should be settled before you start the app for the first time** (the app's database files get owned by that number).
+Test it now:
 
-- **SMB:** the `uid=1000,gid=1000` in the fstab line already makes everything look owned by 1000. Nothing more to do.
+```
+docker compose run --rm app sh -c 'touch /nas/photos/.t && rm /nas/photos/.t && echo "Writing to the NAS works"'
+```
+
+(The first time this also builds the app, which takes a few minutes.) If it says `Writing to the NAS works`, carry on.
+If it says "Permission denied":
+
+- **SMB:** the `uid=1000,gid=1000` in the fstab line makes everything look owned by 1000. Check `PUID` and `PGID` are still 1000.
 - **NFS:** the NAS decides by number. Find the numbers of the NAS user who owns the `family-tree` folder
-  (on the NAS: `id USERNAME`) and put them in `PUID` and `PGID`. Or give user 1000 write access on the NAS.
+  (on the NAS: `id USERNAME`), put them in `PUID` and `PGID` in `.env`, and run the test again. Or give user 1000 write access on the NAS.
 
-After changing them run `docker compose up -d` again. The database does not depend on these
-numbers; it lives in a Docker volume on the VM that any of these users can write to.
+**Changing PUID or PGID after the app has already run** makes it unable to open its own database (it keeps
+restarting). Fix it by handing the data over to the new numbers (type the numbers in, for example 1001 and 1001):
+
+```
+docker compose stop
+docker compose run --rm --user 0 --cap-add CHOWN app chown -R 1001:1001 /data
+docker compose up -d
+```
 
 ---
 
@@ -163,7 +179,9 @@ To turn sharing off again: `sudo tailscale serve reset`.
 **Alternative: the VM's Tailscale address.** Run `tailscale ip -4` on the VM (it starts with `100.`).
 Put that in `.env` as `BIND_ADDRESS=100.x.x.x`, keep `COOKIE_SECURE=false`, run `docker compose up -d`,
 and open `http://100.x.x.x:8000`. This works, but it is plain `http` inside your private network and the
-phone "install" option is not offered. Never set `BIND_ADDRESS=0.0.0.0`, which would expose it to your whole home network.
+phone "install" option is not offered. It can also fail after a VM restart: if Docker starts before Tailscale has
+its address, the app cannot start (run `docker compose up -d` again once Tailscale is up). That is why `tailscale serve`
+with `BIND_ADDRESS=127.0.0.1` is the recommended way. Never set `BIND_ADDRESS=0.0.0.0`, which would expose it to your whole home network.
 
 ---
 
@@ -192,13 +210,15 @@ Signing in is blocked for 15 minutes after 5 wrong tries. Signed-in sessions tim
 ### Trying it out with sample people (optional)
 
 To see the four layouts before you enter your own family, there is a script that adds a made-up
-22-person family. Only do this on a new, empty install (it refuses if people already exist):
+22-person family. Only do this on a new, empty install (it refuses if people already exist). Run it on the VM
+(use your `APP_PORT` number from `.env` if you changed it from 8000):
 
 ```
-python3 scripts/seed_sample_family.py --username YOURADMIN --password 'YOURPASSWORD'
+python3 scripts/seed_sample_family.py --url http://127.0.0.1:8000 --username YOURADMIN --password 'YOURPASSWORD'
 ```
 
-Add `--url https://your-address` if you are not running it on the VM itself. To remove the sample people
+It works with either `COOKIE_SECURE` setting, because it talks to the app directly on the VM over `http://127.0.0.1`. To run it
+from another computer use `--url` with the app's `https://` address from step 4 instead. To remove the sample people
 afterwards, delete them one by one from their profile pages, or (on a brand new install only)
 restore the empty state with `docker compose down -v` and start again.
 
@@ -233,7 +253,7 @@ Photos are not affected (they are on the NAS).
 3. Restore (replace the file name with yours):
 
    ```
-   docker compose run --rm app python -m app.backup restore /backups/family-tree-20261024-020000.db
+   docker compose run --rm app python -m app.backup restore /nas/backups/family-tree-20261024-020000.db
    ```
 
    It says `Restored.` when finished. The database it replaced is kept inside the app's data volume
@@ -250,8 +270,12 @@ If it says "That file is not a complete family tree backup", nothing was changed
 
 ## 8. Updating
 
-`update.sh` does it for you: it takes a backup first, rebuilds with the newest base system images, restarts the
-app and tells you if it is healthy. If the backup fails, it stops without changing anything.
+`update.sh` does it for you, in this order:
+
+1. **Takes a backup first.** If the app is running, the backup is made inside it. If the app is stopped but was installed before,
+   it makes the backup with a one-off copy of the app. It only skips the backup on a brand-new install (the app has never been built here).
+2. **If the backup fails, it stops** with a plain message and changes nothing (no rebuild, no restart).
+3. Rebuilds with the newest base system images, restarts the app, waits up to 90 seconds and tells you whether it is healthy.
 
 ```
 ./update.sh
@@ -289,14 +313,13 @@ The tree and profiles keep working. Check the NAS is on, then:
 ls /mnt/nas/family-tree
 ```
 You should see `photos`, `backups` and `.family-tree-nas-ok` (use `ls -a` to see the dot file). If the folder is empty, mount it again
-(`sudo mount /mnt/nas/family-tree`). Then **restart the app so it picks the share up again**:
-```
-docker compose restart
-```
-If the app will not start and says a "bind source path does not exist", the `photos` or `backups` folder
-is missing from `NAS_MOUNT`; do step 2c again.
+(`sudo mount /mnt/nas/family-tree`). If the folder has the files but the app still says offline, the marker file is missing: `touch
+/mnt/nas/family-tree/.family-tree-nas-ok`. The app notices a returning NAS by itself within a minute or so (the next upload or
+backup attempt); backups retry every 15 minutes. If it still shows offline after you have checked all of that, try
+`docker compose restart` (the share is passed into the app so that a later mount should appear without this, but a restart is harmless).
+The app starts and works even when the NAS is off at start-up.
 
-**Photo uploads say they cannot be saved though the NAS is on.** The app's user cannot write to the folders. See "Permissions" in step 2.
+**Photo uploads say they cannot be saved though the NAS is on.** The app's user cannot write to the folders. See step 2d.
 
 **I forgot the administrator password.** There is no "forgot password" link. If you have a second administrator, they can set a new password
 in **Settings > Users**. (So it is a good idea to make a second administrator.) If you have no other administrator, run these

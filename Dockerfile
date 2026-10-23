@@ -14,8 +14,8 @@ ENV PYTHONUNBUFFERED=1 \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     FAMILY_TREE_DATA_DIR=/data \
-    FAMILY_TREE_PHOTOS_DIR=/photos \
-    FAMILY_TREE_BACKUPS_DIR=/backups
+    FAMILY_TREE_PHOTOS_DIR=/nas/photos \
+    FAMILY_TREE_BACKUPS_DIR=/nas/backups
 
 # Time-zone names such as Australia/Sydney need the system time-zone list.
 RUN apt-get update \
@@ -32,8 +32,6 @@ RUN mkdir /data && chmod 0777 /data
 
 COPY backend/app ./app
 COPY --from=web /web/dist /srv/frontend/dist
-COPY docker-entrypoint.sh /usr/local/bin/ft-entrypoint
-RUN chmod 0755 /usr/local/bin/ft-entrypoint
 
 # Runs as a normal (non-root) user. docker-compose.yml may switch the number to match the NAS.
 USER 1000:1000
@@ -43,6 +41,5 @@ VOLUME /data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"]
 
-ENTRYPOINT ["ft-entrypoint"]
 # Exactly one worker: the backup scheduler and the data-folder lock assume a single process.
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

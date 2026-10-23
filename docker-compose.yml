@@ -9,33 +9,27 @@ services:
     # Which user the app runs as. Match this to the owner of the photos folder on the NAS (see README).
     user: "${PUID:-1000}:${PGID:-1000}"
     ports:
-      # Only this VM by default. "tailscale serve" (see README) shares it with your other devices.
+      # Only this VM by default. "tailscale serve" (README, step 4) shares it with your other devices.
       - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
     environment:
       FAMILY_TREE_TIMEZONE: "${TIMEZONE:-Australia/Sydney}"
       FAMILY_TREE_COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      FAMILY_TREE_PHOTOS_DIR: /nas/photos
+      FAMILY_TREE_BACKUPS_DIR: /nas/backups
+      # While this file is missing the app treats the NAS as offline (see README, step 2c). It checks
+      # on every upload and backup, so it recovers by itself when the NAS comes back.
+      FAMILY_TREE_NAS_MARKER: /nas/.family-tree-nas-ok
     volumes:
       # The database lives on the VM's own disk (a Docker volume), never on the NAS.
       - family_tree_data:/data
-      # Photos and backups live on the NAS. The folders must already exist (README, step 3);
-      # "create_host_path: false" stops Docker from quietly making an empty folder instead.
+      # The NAS share (photos and backups folders). The mount folder itself always exists, so the app
+      # starts even when the NAS is off; "rslave" lets a share mounted later appear inside the app.
       - type: bind
-        source: "${NAS_MOUNT:?Set NAS_MOUNT in the .env file}/photos"
-        target: /photos
-        bind:
-          create_host_path: false
-      - type: bind
-        source: "${NAS_MOUNT}/backups"
-        target: /backups
-        bind:
-          create_host_path: false
-      # Read-only view of the share, used only to look for the ".family-tree-nas-ok" marker file.
-      - type: bind
-        source: "${NAS_MOUNT}"
+        source: "${NAS_MOUNT:?Set NAS_MOUNT in the .env file}"
         target: /nas
-        read_only: true
         bind:
           create_host_path: false
+          propagation: rslave
     security_opt:
       - no-new-privileges:true
     cap_drop:
