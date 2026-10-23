@@ -97,13 +97,13 @@ function UserRow({ user, isSelf, reload }: { user: AppUser; isSelf: boolean; rel
           </label>
         )}
         {PERMS.map(([key, label]) => (
-          <label key={key} className="check">
+          <label key={key} className="check" title={user.is_admin ? "An administrator always has every permission." : undefined}>
             <input
               type="checkbox"
               aria-label={`${label} (${user.username})`}
-              checked={user[`can_${key}`]}
-              disabled={busy}
-              onChange={(e) => change({ [`can_${key}`]: e.target.checked })}
+              checked={user.is_admin || user[`can_${key}`]}
+              disabled={busy || user.is_admin}
+              onChange={(e) => !user.is_admin && change({ [`can_${key}`]: e.target.checked })}
             />
             {label}
           </label>

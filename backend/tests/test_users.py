@@ -128,3 +128,30 @@ def test_username_is_unicode_normalised(make_user, login_as, client):
     admin.post("/api/users", json={**NEW, "username": "Zoe\u0301"})  # decomposed e-acute
     r = client.post("/api/login", json={"username": "Zo\u00e9", "password": NEW["password"]})
     assert r.status_code == 200
+
+
+def test_admin_cannot_remove_a_permission_from_an_administrator(make_user, login_as, db):
+    me = make_user(admin=True)
+    admin = login_as(me)
+    for flag in ("can_read", "can_add", "can_edit", "can_delete"):
+        r = admin.patch(f"/api/users/{me.id}", json={flag: False})
+        assert r.status_code == 400
+        assert r.json()["detail"] == "An administrator always has every permission."
+    row = db.execute("SELECT can_read, can_add, can_edit, can_delete FROM User WHERE id = ?", (me.id,)).fetchone()
+    assert tuple(row) == (1, 1, 1, 1)
+    assert admin.get("/api/tree").status_code == 200
+    # a password change on an admin row is still allowed
+    assert admin.patch(f"/api/users/{me.id}", json={"password": "another long password"}).status_code == 200
+
+
+def test_administrator_holds_every_permission_even_if_flags_are_off(make_user, login_as, db):
+    me = make_user(admin=True)
+    db.execute("UPDATE User SET can_read = 0, can_add = 0, can_edit = 0, can_delete = 0 WHERE id = ?", (me.id,))
+    db.commit()
+    admin = login_as(me)
+    assert admin.get("/api/tree").status_code == 200
+    r = admin.post("/api/people", json={"given_names": "Ann", "family_name": "Smith"})
+    assert r.status_code == 201
+    pid = r.json()["id"]
+    assert admin.patch(f"/api/people/{pid}", json={"occupation": "Nurse"}).status_code == 200
+    assert admin.delete(f"/api/people/{pid}").status_code in (200, 204)

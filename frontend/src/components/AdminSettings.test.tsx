@@ -67,6 +67,20 @@ describe("Users", () => {
     expect(within(me).queryByRole("button", { name: /disable/i })).not.toBeInTheDocument();
   });
 
+  it("shows every permission ticked and locked for an administrator", async () => {
+    const net = mockFetch(routes({ "GET /api/users": { body: [{ ...ADMIN, can_read: false, can_delete: false }, BOB] } }));
+    renderAs(["read", "admin"], <AdminSettings />);
+    const me = (await screen.findByText("sam")).closest("li")!;
+    for (const label of ["Read", "Add", "Edit", "Delete"]) {
+      const box = within(me).getByLabelText(`${label} (sam)`);
+      expect(box).toBeChecked();
+      expect(box).toBeDisabled();
+    }
+    fireEvent.click(within(me).getByLabelText("Read (sam)"));
+    expect(net.calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(screen.getByLabelText("Read (bob)")).toBeEnabled();
+  });
+
   it("disables a user after asking, and enables a disabled user straight away", async () => {
     const net = mockFetch(routes({
       "PATCH /api/users/2": (req) => ({ body: { ...BOB, ...(req.body as object) } }),

@@ -77,9 +77,12 @@ def update_user(
     admin: CurrentUser = Depends(require("admin")),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
-    if get_user_row(conn, user_id) is None:
+    row = get_user_row(conn, user_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="That user could not be found.")
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    if row["is_admin"] and any(name.startswith("can_") for name in changes):
+        raise HTTPException(status_code=400, detail="An administrator always has every permission.")
     if user_id == admin.id and changes.get("active") is False:
         raise HTTPException(status_code=400, detail="You cannot disable your own account.")
     if "password" in changes:

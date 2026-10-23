@@ -10,7 +10,7 @@ import { Setup } from "./components/Setup";
 import { Shell } from "./components/Shell";
 import { TreeView } from "./components/TreeView";
 import { ErrorMessage } from "./components/ErrorMessage";
-import { MeProvider } from "./me";
+import { MeProvider, hasPermission } from "./me";
 import { useRoute, type Route } from "./router";
 import type { Me } from "./types";
 
@@ -77,7 +77,7 @@ export function App() {
       return (
         <MeProvider user={session.me} onSignOut={() => setSession({ state: "login" })}>
           <Shell route={route}>
-            {session.me.can_read ? <Page route={route} /> : <Placeholder title="No access yet">Your account cannot view the family yet. Please ask the administrator.</Placeholder>}
+            {hasPermission(session.me, "read") ? <Page route={route} /> : <Placeholder title="No access yet">Your account cannot view the family yet. Please ask the administrator.</Placeholder>}
           </Shell>
         </MeProvider>
       );

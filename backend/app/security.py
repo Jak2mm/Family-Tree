@@ -161,7 +161,8 @@ def require(*perms: str):
 
     def check(user: CurrentUser = Depends(current_user)) -> CurrentUser:
         for perm in perms:
-            allowed = user.is_admin if perm == "admin" else getattr(user, f"can_{perm}")
+            # An administrator always holds every permission, so they can never lock themselves out.
+            allowed = user.is_admin or (perm != "admin" and getattr(user, f"can_{perm}"))
             if not allowed:
                 raise HTTPException(status_code=403, detail="You do not have permission to do that.")
         return user

@@ -65,6 +65,19 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
   });
 
+  it("treats an administrator as able to read even if their read box was somehow cleared", async () => {
+    window.location.hash = "#/people";
+    mockFetch({
+      "GET /api/me": { body: { ...meWith(["admin"]), can_read: false } },
+      "GET /api/me/preferences": { body: PREFS },
+      "GET /api/people": { body: [] },
+    });
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "People" })).toBeInTheDocument();
+    expect(screen.queryByText("No access yet")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
   it("hides the Settings link from other users and signs out through the menu", async () => {
     const net = mockFetch({
       "GET /api/me": { body: meWith(["read"]) },

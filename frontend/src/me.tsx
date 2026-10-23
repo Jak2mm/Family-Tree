@@ -16,6 +16,14 @@ interface MeValue {
   signOut: () => void;
 }
 
+type PermissionFlags = Pick<Me, "is_admin" | "can_read" | "can_add" | "can_edit" | "can_delete">;
+
+/** An administrator always holds every permission; everyone else has what their boxes say. */
+export function hasPermission(user: PermissionFlags, p: Permission): boolean {
+  if (user.is_admin) return true;
+  return p === "read" ? user.can_read : p === "add" ? user.can_add : p === "edit" ? user.can_edit : p === "delete" ? user.can_delete : false;
+}
+
 const MeContext = createContext<MeValue | null>(null);
 
 export function MeProvider({ user, onSignOut, children }: { user: Me; onSignOut: () => void; children: ReactNode }) {
@@ -48,7 +56,7 @@ export function MeProvider({ user, onSignOut, children }: { user: Me; onSignOut:
   const value = useMemo<MeValue>(
     () => ({
       user,
-      can: (p) => (p === "admin" ? user.is_admin : p === "read" ? user.can_read : p === "add" ? user.can_add : p === "edit" ? user.can_edit : user.can_delete),
+      can: (p) => hasPermission(user, p),
       dateFormat,
       ready,
       setDateFormat,
