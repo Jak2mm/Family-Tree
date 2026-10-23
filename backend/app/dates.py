@@ -51,3 +51,15 @@ def provably_before(a: str, b: str) -> bool:
     """True only if the latest possible moment of `a` is strictly earlier than
     the earliest possible moment of `b`. A partial date means the whole year or month."""
     return _bounds(a)[1] < _bounds(b)[0]
+
+
+def add_years(s: str, years: int) -> str:
+    """Shift a partial date by whole years, keeping its precision (29 Feb becomes 28 Feb in a non-leap year)."""
+    d = parse_date(s)
+    year = min(d.year + years, 9999)
+    if d.month is None:
+        return f"{year:04d}"
+    if d.day is None:
+        return f"{year:04d}-{d.month:02d}"
+    day = min(d.day, calendar.monthrange(year, d.month)[1])
+    return f"{year:04d}-{d.month:02d}-{day:02d}"

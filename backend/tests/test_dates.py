@@ -57,3 +57,12 @@ def test_none_sorts_last():
 )
 def test_provably_before(a, b, expected):
     assert provably_before(a, b) is expected
+
+
+def test_add_years_keeps_precision():
+    from app.dates import add_years
+
+    assert add_years("2000", 12) == "2012"
+    assert add_years("2000-06", 12) == "2012-06"
+    assert add_years("2000-06-15", 12) == "2012-06-15"
+    assert add_years("2000-02-29", 1) == "2001-02-28"

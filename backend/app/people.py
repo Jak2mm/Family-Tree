@@ -2,7 +2,8 @@ import json
 import sqlite3
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app import audit
@@ -96,31 +97,90 @@ def profile(conn: sqlite3.Connection, person_id: int) -> dict:
         "bio": row["bio"],
         "profile_photo_id": row["profile_photo_id"],
         "places_lived": places_for(conn, person_id),
-        # Filled in by the relationships and albums tasks.
-        "parents": [],
-        "children": [],
-        "siblings": [],
-        "partnerships": [],
+        **relations_for(conn, person_id),
+        # Filled in by the albums task.
         "albums": [],
     }
 
 
-def has_links(conn: sqlite3.Connection, person_id: int) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM ParentLink WHERE parent_id = :p OR child_id = :p"
-        " UNION ALL SELECT 1 FROM Partnership WHERE person_a_id = :p OR person_b_id = :p LIMIT 1",
-        {"p": person_id},
-    ).fetchone() is not None
+def relations_for(conn: sqlite3.Connection, person_id: int) -> dict:
+    """Parents, children, siblings and partnerships, each with the link id the profile needs for Undo."""
+    def person_entry(row, **extra):
+        return {"id": row["id"], "name": display_name(row["given_names"], row["family_name"]), **extra}
 
-
-def delete_person(conn: sqlite3.Connection, person_id: int) -> None:
-    """Delete a person and, via cascade, their places and albums. Refuses if they have relationships."""
-    if has_links(conn, person_id):
-        raise HTTPException(
-            status_code=409,
-            detail="This person still has relationships (parents, children or partners). Remove those first.",
+    parents = [
+        person_entry(r, link_id=f"p:{r['rowid']}", kind=r["kind"])
+        for r in conn.execute(
+            "SELECT l.rowid AS rowid, l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.parent_id"
+            " WHERE l.child_id = ? ORDER BY p.id",
+            (person_id,),
         )
+    ]
+    children = [
+        person_entry(r, link_id=f"p:{r['rowid']}", kind=r["kind"])
+        for r in conn.execute(
+            "SELECT l.rowid AS rowid, l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.child_id"
+            " WHERE l.parent_id = ? ORDER BY p.id",
+            (person_id,),
+        )
+    ]
+    own_parents = {p["id"] for p in parents}
+    siblings = []
+    if own_parents:
+        marks = ",".join("?" * len(own_parents))
+        for r in conn.execute(
+            f"SELECT DISTINCT p.* FROM ParentLink l JOIN Person p ON p.id = l.child_id"
+            f" WHERE l.parent_id IN ({marks}) AND l.child_id <> ? ORDER BY p.id",
+            (*own_parents, person_id),
+        ):
+            theirs = {x[0] for x in conn.execute("SELECT parent_id FROM ParentLink WHERE child_id = ?", (r["id"],))}
+            siblings.append(person_entry(r, half=theirs != own_parents))
+    partnerships = [
+        person_entry(r, link_id=f"c:{r['pid']}", kind=r["kind"], start_year=r["start_year"], end_year=r["end_year"])
+        for r in conn.execute(
+            "SELECT c.id AS pid, c.kind, c.start_year, c.end_year, p.* FROM Partnership c"
+            " JOIN Person p ON p.id = CASE WHEN c.person_a_id = :p THEN c.person_b_id ELSE c.person_a_id END"
+            " WHERE c.person_a_id = :p OR c.person_b_id = :p ORDER BY c.id",
+            {"p": person_id},
+        )
+    ]
+    return {"parents": parents, "children": children, "siblings": siblings, "partnerships": partnerships}
+
+
+def person_links(conn: sqlite3.Connection, person_id: int) -> list[dict]:
+    """Every relationship the person is part of, from their point of view: kind is parent, child or partner."""
+    rels = relations_for(conn, person_id)
+    return [
+        {"kind": kind, "id": r["id"], "name": r["name"], "link_id": r["link_id"]}
+        for kind, key in (("parent", "parents"), ("child", "children"), ("partner", "partnerships"))
+        for r in rels[key]
+    ]
+
+
+def photo_files_for(conn: sqlite3.Connection, person_id: int) -> list[str]:
+    """File names of every photo the person owns, read before the rows are deleted.
+    The photos task deletes these files from the NAS once the transaction has committed."""
+    return [
+        r["file_name"]
+        for r in conn.execute(
+            "SELECT ph.file_name FROM Photo ph JOIN Album a ON a.id = ph.album_id WHERE a.person_id = ? ORDER BY ph.id",
+            (person_id,),
+        )
+    ]
+
+
+def delete_person(conn: sqlite3.Connection, person_id: int) -> list[str]:
+    """Delete a person with their links, places, albums and photo rows, without committing.
+    Returns the photo file names so the caller can remove the files after it commits."""
+    files = photo_files_for(conn, person_id)
+    conn.execute("DELETE FROM ParentLink WHERE parent_id = :p OR child_id = :p", {"p": person_id})
+    conn.execute("DELETE FROM Partnership WHERE person_a_id = :p OR person_b_id = :p", {"p": person_id})
+    conn.execute("UPDATE Person SET profile_photo_id = NULL WHERE id = ?", (person_id,))
+    conn.execute("DELETE FROM Photo WHERE album_id IN (SELECT id FROM Album WHERE person_id = ?)", (person_id,))
+    conn.execute("DELETE FROM Album WHERE person_id = ?", (person_id,))
+    conn.execute("DELETE FROM PlaceLived WHERE person_id = ?", (person_id,))
     conn.execute("DELETE FROM Person WHERE id = ?", (person_id,))
+    return files
 
 
 @router.get("/people")
@@ -192,10 +252,29 @@ def update_person(
 
 
 @router.delete("/people/{person_id}", status_code=204)
-def remove_person(person_id: int, user: CurrentUser = Depends(require("delete")), conn: sqlite3.Connection = Depends(get_conn)):
+def remove_person(
+    person_id: int,
+    links: Literal["refuse", "remove"] = Query("refuse"),
+    user: CurrentUser = Depends(require("delete")),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
     get_person_row(conn, person_id)
-    delete_person(conn, person_id)
-    audit.record(conn, user.id, "delete", "person", person_id)
+    if links == "refuse":
+        found = person_links(conn, person_id)
+        if found:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "This person still has relationships (parents, children or partners). Remove them first, or delete the person together with their relationships.",
+                    "links": found,
+                },
+            )
+    try:
+        delete_person(conn, person_id)
+        audit.record(conn, user.id, "delete", "person", person_id)
+    except Exception:
+        conn.rollback()
+        raise
     conn.commit()
     return Response(status_code=204)
 
