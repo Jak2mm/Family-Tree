@@ -2,16 +2,23 @@ import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.config import Settings, load_settings
 from app import audit, auth, backup, links, people, photos, settings_api, tree, users
 from app.db import connect, init_db
 
 
-def create_app(settings: Settings | None = None, start_scheduler: bool = True) -> FastAPI:
+DEFAULT_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+def create_app(
+    settings: Settings | None = None, start_scheduler: bool = True, frontend_dir: str | os.PathLike | None = None
+) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -62,4 +69,24 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = True) -
     def health():
         return {"status": "ok"}
 
+    dist = Path(frontend_dir if frontend_dir is not None else DEFAULT_FRONTEND_DIR).resolve()
+    if (dist / "index.html").is_file():
+        _serve_frontend(app, dist)
+
     return app
+
+
+def _serve_frontend(app: FastAPI, dist: Path) -> None:
+    """Serve the built front end: real files as they are, any other page address as index.html.
+    Registered last and never answers /api paths, so unknown API addresses keep the API's JSON 404."""
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend(path: str):
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = (dist / path).resolve()
+        if path and candidate.is_file() and candidate.is_relative_to(dist):
+            return FileResponse(candidate)
+        if path.startswith("assets/") or Path(path).suffix:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(dist / "index.html")
