@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { fitView } from "../layout/fit";
 
 export const MIN_ZOOM = 0.3;
 export const MAX_ZOOM = 2;
@@ -24,6 +25,13 @@ export function usePanZoom() {
   const centreOn = useCallback((x: number, y: number) => {
     const el = viewport.current;
     setView((v) => ({ ...v, x: (el?.clientWidth ?? 0) / 2 - x * v.k, y: (el?.clientHeight ?? 0) / 2 - y * v.k }));
+  }, []);
+
+  /** Show the whole tree, or if it is too big, the smallest zoom centred on `anchor`. */
+  const fit = useCallback((width: number, height: number, anchor: [number, number] | null) => {
+    const el = viewport.current;
+    const next = el && fitView(el.clientWidth, el.clientHeight, width, height, anchor, MIN_ZOOM);
+    if (next) setView(next);
   }, []);
 
   useEffect(() => {
@@ -71,5 +79,5 @@ export function usePanZoom() {
     setView((v) => ({ ...v, x: v.x + m[0], y: v.y + m[1] }));
   };
 
-  return { view, viewport, zoomBy, centreOn, handlers: { onPointerDown, onKeyDown } };
+  return { view, viewport, zoomBy, centreOn, fit, handlers: { onPointerDown, onKeyDown } };
 }

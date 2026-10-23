@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMe } from "../me";
 import { edgesFor } from "../layout/edges";
 import { CARD_H, CARD_W, layoutTree, type LayoutId } from "../layout/layoutTree";
@@ -22,7 +22,7 @@ export function TreeView() {
   const { can, dateFormat } = useMe();
   const { data, error, reload } = useTreeData();
   const { prefs, error: prefsError, save } = useTreePrefs();
-  const { view, viewport, zoomBy, centreOn, handlers } = usePanZoom();
+  const { view, viewport, zoomBy, centreOn, fit, handlers } = usePanZoom();
   const [linkMode, setLinkMode] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
   const [pair, setPair] = useState<{ a: number; b: number } | null>(null);
@@ -36,6 +36,35 @@ export function TreeView() {
   const edges = useMemo(() => (data && laid ? edgesFor(data, laid.nodes, layout) : []), [data, laid, layout]);
   const people = useMemo(() => new Map(data?.people.map((p) => [p.id, p])), [data]);
   const byName = useMemo(() => [...(data?.people ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [data]);
+
+  // The oldest person with no parents in the tree: where a tree too big for the screen is centred.
+  const anchor = useMemo((): [number, number] | null => {
+    if (!data || !laid) return null;
+    const children = new Set(data.parent_links.map(([, c]) => c));
+    const roots = data.people.filter((p) => !children.has(p.id)).sort((a, b) => (a.birth_year ?? Infinity) - (b.birth_year ?? Infinity) || a.id - b.id);
+    const node = laid.nodes.find((n) => n.id === roots[0]?.id);
+    return node ? [node.x + CARD_W / 2, node.y + CARD_H / 2] : null;
+  }, [data, laid]);
+  const fitTree = () => laid && fit(laid.width, laid.height, anchor);
+
+  // Let the tree fill the window below the toolbar.
+  const hasTree = !!laid && laid.nodes.length > 0;
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const size = () => (el.style.height = `${Math.max(320, Math.round(window.innerHeight - el.getBoundingClientRect().top - window.scrollY - 16))}px`);
+    size();
+    window.addEventListener("resize", size);
+    return () => window.removeEventListener("resize", size);
+  }, [hasTree, viewport]);
+
+  // Show the whole tree when it first appears and whenever the layout changes, unless a person is in focus.
+  const fittedLayout = useRef<LayoutId | null>(null);
+  useEffect(() => {
+    if (!laid || laid.nodes.length === 0 || fittedLayout.current === layout) return;
+    fittedLayout.current = layout;
+    if (focusId === null) fit(laid.width, laid.height, anchor);
+  }, [laid, layout, focusId, anchor, fit]);
 
   // Re-centre on the chosen person, also after the layout changes their position.
   useEffect(() => {
@@ -94,6 +123,7 @@ export function TreeView() {
         <div className="button-row" role="group" aria-label="Zoom">
           <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>−</button>
           <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1.2)}>+</button>
+          <button type="button" aria-label="Fit tree to screen" onClick={fitTree}>Fit</button>
         </div>
       </div>
       {linkMode && <p className="hint" role="status">{hint} Press Escape to start again.</p>}

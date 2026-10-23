@@ -83,6 +83,7 @@ img { max-width: 100%; }
 }
 
 .content { max-width: 60rem; margin: 0 auto; padding: var(--gap); }
+.content.wide { max-width: none; } /* the family tree uses the whole window width */
 main.narrow { max-width: 26rem; margin: 24px auto; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: calc(var(--gap) * 1.25); }
@@ -162,7 +163,7 @@ dialog.confirm h2 { margin-top: 0; }
 .check input { min-height: 0; width: 20px; height: 20px; }
 .tree-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px var(--gap); margin-bottom: var(--gap); }
 .tree-viewport {
-  position: relative; overflow: hidden; height: 70vh; min-height: 360px; cursor: grab;
+  position: relative; overflow: hidden; height: calc(100vh - 220px); min-height: 320px; cursor: grab; /* height is set to fill the window by TreeView */
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); touch-action: none; user-select: none;
 }
 .tree-viewport:active { cursor: grabbing; }

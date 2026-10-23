@@ -31,7 +31,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </nav>
         <UserMenu />
       </header>
-      <main id="main" ref={main} tabIndex={-1} className="content">
+      <main id="main" ref={main} tabIndex={-1} className={route.name === "tree" ? "content wide" : "content"}>
         {children}
       </main>
     </>
