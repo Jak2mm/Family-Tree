@@ -2,11 +2,11 @@ import json
 import sqlite3
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app import audit
+from app import audit, photos
 from app.dates import parse_date, provably_before
 from app.security import CurrentUser, current_user, get_conn, require
 
@@ -98,8 +98,7 @@ def profile(conn: sqlite3.Connection, person_id: int) -> dict:
         "profile_photo_id": row["profile_photo_id"],
         "places_lived": places_for(conn, person_id),
         **relations_for(conn, person_id),
-        # Filled in by the albums task.
-        "albums": [],
+        "albums": photos.albums_for(conn, person_id),
     }
 
 
@@ -159,7 +158,7 @@ def person_links(conn: sqlite3.Connection, person_id: int) -> list[dict]:
 
 def photo_files_for(conn: sqlite3.Connection, person_id: int) -> list[str]:
     """File names of every photo the person owns, read before the rows are deleted.
-    The photos task deletes these files from the NAS once the transaction has committed."""
+    The caller deletes these files from the photos folder once the transaction has committed."""
     return [
         r["file_name"]
         for r in conn.execute(
@@ -254,6 +253,7 @@ def update_person(
 @router.delete("/people/{person_id}", status_code=204)
 def remove_person(
     person_id: int,
+    request: Request,
     links: Literal["refuse", "remove"] = Query("refuse"),
     user: CurrentUser = Depends(require("delete")),
     conn: sqlite3.Connection = Depends(get_conn),
@@ -270,12 +270,13 @@ def remove_person(
                 },
             )
     try:
-        delete_person(conn, person_id)
+        files = delete_person(conn, person_id)
         audit.record(conn, user.id, "delete", "person", person_id)
     except Exception:
         conn.rollback()
         raise
     conn.commit()
+    photos.remove_files(request.app.state.settings.photos_dir, files)  # only after the commit
     return Response(status_code=204)
 
 
