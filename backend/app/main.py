@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, load_settings
 from app import audit, auth, backup, links, people, photos, settings_api, tree, users
@@ -77,16 +79,18 @@ def create_app(
 
 
 def _serve_frontend(app: FastAPI, dist: Path) -> None:
-    """Serve the built front end: real files as they are, any other page address as index.html.
-    Registered last and never answers /api paths, so unknown API addresses keep the API's JSON 404."""
+    """Serve the built front end for addresses no route claims: real files as they are, other page
+    addresses as index.html. It runs only on a 404, so it can never shadow a route (even one added
+    later), and /api paths keep the API's JSON 404."""
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def frontend(path: str):
-        if path == "api" or path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not Found")
+    @app.exception_handler(StarletteHTTPException)
+    async def frontend_or_error(request: Request, exc: StarletteHTTPException):
+        path = request.url.path.lstrip("/")
+        if exc.status_code != 404 or request.method != "GET" or path == "api" or path.startswith("api/"):
+            return await http_exception_handler(request, exc)
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(dist):
             return FileResponse(candidate)
         if path.startswith("assets/") or Path(path).suffix:
-            raise HTTPException(status_code=404, detail="Not Found")
+            return await http_exception_handler(request, exc)
         return FileResponse(dist / "index.html")

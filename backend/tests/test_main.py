@@ -42,3 +42,14 @@ def test_dist_folder_is_served_with_spa_fallback(settings, tmp_path):
         assert c.get("/assets/nope.js").status_code == 404
         assert c.get("/../../etc/passwd").status_code in (200, 404)
         assert "root:" not in c.get("/%2e%2e/%2e%2e/etc/passwd").text
+
+
+def test_routes_added_after_startup_are_not_shadowed_by_the_front_end(settings, tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app = create_app(settings, start_scheduler=False, frontend_dir=str(_make_dist(tmp_path / "dist")))
+    app.add_api_route("/late", lambda: {"late": True})
+    with TestClient(app) as c:
+        assert c.get("/late").json() == {"late": True}
+        assert c.post("/person/3").status_code == 404  # only GET falls back to the page
