@@ -7,6 +7,7 @@ import { Placeholder } from "./components/Placeholder";
 import { ProfilePage } from "./components/ProfilePage";
 import { Setup } from "./components/Setup";
 import { Shell } from "./components/Shell";
+import { TreeView } from "./components/TreeView";
 import { ErrorMessage } from "./components/ErrorMessage";
 import { MeProvider } from "./me";
 import { useRoute, type Route } from "./router";
@@ -25,7 +26,7 @@ function Page({ route }: { route: Route }) {
     case "personNew":
       return <PersonForm key="new" />;
     case "tree":
-      return <Placeholder title="Family tree">The family tree view is coming soon.</Placeholder>;
+      return <TreeView />;
     case "admin":
       return <Placeholder title="Admin">The admin page is coming soon.</Placeholder>;
     default:

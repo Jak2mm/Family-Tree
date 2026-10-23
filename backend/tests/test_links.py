@@ -374,7 +374,10 @@ def test_tree_endpoint(full):
     link(full, s, p, "spouse")
     tree = full.get("/api/tree").json()
     people = {x["id"]: x for x in tree["people"]}
-    assert people[g] == {"id": g, "name": "Gran Lee", "birth_year": 1930, "death_year": 2001, "generation": 0, "photo_id": None}
+    assert people[g] == {
+        "id": g, "name": "Gran Lee", "birth_year": 1930, "death_year": 2001, "generation": 0, "photo_id": None,
+        "occupation": None, "birth_date": "1930-05-01", "death_date": "2001",
+    }
     assert people[p]["generation"] == 1 and people[s]["generation"] == 1 and people[c]["generation"] == 2
     assert people[c]["birth_year"] is None and people[c]["death_year"] is None
     assert sorted(tree["parent_links"]) == sorted([[g, p], [p, c]])
