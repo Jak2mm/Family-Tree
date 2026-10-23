@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS ParentLink (
 );
 
 CREATE TABLE IF NOT EXISTS Partnership (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     person_a_id INTEGER NOT NULL REFERENCES Person(id) ON DELETE CASCADE,
     person_b_id INTEGER NOT NULL REFERENCES Person(id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK (kind IN ('married', 'de facto', 'partner', 'other')),

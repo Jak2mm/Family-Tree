@@ -43,7 +43,7 @@ def test_parent_link_means_a_is_parent_of_b(full, db):
     assert r.status_code == 201
     row = db.execute("SELECT * FROM ParentLink").fetchone()
     assert (row["parent_id"], row["child_id"], row["kind"]) == (a, b, "biological")
-    assert r.json()["ids"] == [f"p:{db.execute('SELECT rowid FROM ParentLink').fetchone()[0]}"]
+    assert r.json()["ids"] == [f"p:{a}-{b}"]
 
 
 def test_child_link_means_a_is_child_of_b(full, db):
@@ -255,9 +255,36 @@ def test_undo_each_sibling_link(full, db):
     assert count(db, "ParentLink") == 2
 
 
-@pytest.mark.parametrize("link_id", ["p:999", "c:999", "x:1", "p:abc", "5", ""])
+@pytest.mark.parametrize("link_id", ["p:999-998", "c:999", "x:1", "p:abc", "p:1-", "p:-1", "p:1", "c:1-2", "c:", "5", "p:١-٢"])
 def test_undo_unknown_link_is_404(full, link_id):
-    assert full.delete(f"/api/links/{link_id or 'p:'}").status_code == 404
+    assert full.delete(f"/api/links/{link_id}").status_code == 404
+
+
+def test_stale_parent_link_id_never_deletes_another_link(full, db):
+    a, b, c, d = person(full, "A"), person(full, "B"), person(full, "C"), person(full, "D")
+    old = link(full, a, b, "parent").json()["ids"][0]
+    assert full.delete(f"/api/links/{old}").status_code == 204
+    new = link(full, c, d, "parent").json()["ids"][0]
+    assert new != old
+    assert full.delete(f"/api/links/{old}").status_code == 404
+    assert db.execute("SELECT COUNT(*) FROM ParentLink WHERE parent_id = ? AND child_id = ?", (c, d)).fetchone()[0] == 1
+
+
+def test_stale_partnership_id_never_deletes_another_link(full, db):
+    a, b, c, d = person(full, "A"), person(full, "B"), person(full, "C"), person(full, "D")
+    old = link(full, a, b, "spouse").json()["ids"][0]
+    assert full.delete(f"/api/links/{old}").status_code == 204
+    new = link(full, c, d, "spouse").json()["ids"][0]
+    assert new != old
+    assert full.delete(f"/api/links/{old}").status_code == 404
+    assert count(db, "Partnership") == 1
+
+
+def test_profile_parent_link_ids_can_be_undone(full, db):
+    a, b = person(full, "A"), person(full, "B")
+    link(full, a, b, "parent")
+    assert full.get(f"/api/people/{a}").json()["children"][0]["link_id"] == f"p:{a}-{b}"
+    assert full.get(f"/api/people/{b}").json()["parents"][0]["link_id"] == f"p:{a}-{b}"
 
 
 def test_link_writes_are_audited(full, db):
@@ -426,24 +453,27 @@ def test_delete_without_links_but_with_albums_and_photos_leaves_no_orphans(full,
 
 
 def test_failed_remove_rolls_back_everything(full, db, monkeypatch):
-    from app import people
+    from fastapi.testclient import TestClient
+
+    from app import audit
 
     a, b = person(full, "A"), person(full, "B")
     link(full, a, b, "parent")
+    link(full, a, b, "spouse")
     add_media(db, a)
 
-    def boom(conn, person_id):
+    def boom(*args, **kwargs):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(people, "photo_files_for", boom)
-    from fastapi.testclient import TestClient
-
+    monkeypatch.setattr(audit, "record", boom)  # runs after every row has been deleted
     c = TestClient(full.app, raise_server_exceptions=False)
     c.cookies.update(full.cookies)
     c.headers.update(full.headers)
     assert c.delete(f"/api/people/{a}?links=remove").status_code == 500
-    assert count(db, "ParentLink") == 1 and count(db, "Album") == 1 and count(db, "Photo") == 2
     assert db.execute("SELECT COUNT(*) FROM Person WHERE id = ?", (a,)).fetchone()[0] == 1
+    assert count(db, "ParentLink") == 1 and count(db, "Partnership") == 1
+    assert count(db, "Album") == 1 and count(db, "Photo") == 2 and count(db, "PlaceLived") == 1
+    assert db.execute("SELECT profile_photo_id FROM Person WHERE id = ?", (a,)).fetchone()[0] is not None
 
 
 def test_delete_remove_needs_delete_permission(make_user, login_as, full):

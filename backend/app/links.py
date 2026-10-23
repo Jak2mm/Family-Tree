@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from typing import Literal
 
@@ -126,9 +127,9 @@ def create_parent_links(conn: sqlite3.Connection, user: CurrentUser, body: NewLi
                 )
     ids = []
     for parent, child, kind in rows:
-        cur = conn.execute("INSERT INTO ParentLink (parent_id, child_id, kind) VALUES (?, ?, ?)", (parent, child, kind))
-        audit.record(conn, user.id, "create", "parent_link", cur.lastrowid)
-        ids.append(f"p:{cur.lastrowid}")
+        conn.execute("INSERT INTO ParentLink (parent_id, child_id, kind) VALUES (?, ?, ?)", (parent, child, kind))
+        audit.record(conn, user.id, "create", "parent_link", child)
+        ids.append(f"p:{parent}-{child}")
     return ids
 
 
@@ -158,17 +159,26 @@ def create_link(
     return {"ids": ids}
 
 
+LINK_ID = re.compile(r"^(?:(p):(\d+)-(\d+)|(c):(\d+))$", re.ASCII)
+
+
 @router.delete("/links/{link_id}", status_code=204)
 def undo_link(link_id: str, user: CurrentUser = Depends(require("edit")), conn: sqlite3.Connection = Depends(get_conn)):
-    prefix, _, number = link_id.partition(":")
-    if prefix not in ("p", "c") or not number.isdecimal():
+    """Undo one link. Parent link ids are `p:<parent>-<child>` and partnership ids `c:<id>`; both name the
+    relationship itself, so an id that no longer exists is a 404 and can never remove a different link."""
+    m = LINK_ID.match(link_id)
+    if m is None:
         raise HTTPException(status_code=404, detail="That relationship could not be found.")
-    if prefix == "p":
-        cur = conn.execute("DELETE FROM ParentLink WHERE rowid = ?", (int(number),))
+    if m.group(1):
+        parent, child = int(m.group(2)), int(m.group(3))
+        cur = conn.execute("DELETE FROM ParentLink WHERE parent_id = ? AND child_id = ?", (parent, child))
+        action, record_id = "parent_link", child
     else:
-        cur = conn.execute("DELETE FROM Partnership WHERE id = ?", (int(number),))
+        record_id = int(m.group(5))
+        cur = conn.execute("DELETE FROM Partnership WHERE id = ?", (record_id,))
+        action = "partnership"
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="That relationship could not be found.")
-    audit.record(conn, user.id, "delete", "parent_link" if prefix == "p" else "partnership", int(number))
+    audit.record(conn, user.id, "delete", action, record_id)
     conn.commit()
     return Response(status_code=204)

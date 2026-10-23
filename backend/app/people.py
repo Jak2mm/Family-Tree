@@ -109,17 +109,17 @@ def relations_for(conn: sqlite3.Connection, person_id: int) -> dict:
         return {"id": row["id"], "name": display_name(row["given_names"], row["family_name"]), **extra}
 
     parents = [
-        person_entry(r, link_id=f"p:{r['rowid']}", kind=r["kind"])
+        person_entry(r, link_id=f"p:{r['id']}-{person_id}", kind=r["kind"])
         for r in conn.execute(
-            "SELECT l.rowid AS rowid, l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.parent_id"
+            "SELECT l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.parent_id"
             " WHERE l.child_id = ? ORDER BY p.id",
             (person_id,),
         )
     ]
     children = [
-        person_entry(r, link_id=f"p:{r['rowid']}", kind=r["kind"])
+        person_entry(r, link_id=f"p:{person_id}-{r['id']}", kind=r["kind"])
         for r in conn.execute(
-            "SELECT l.rowid AS rowid, l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.child_id"
+            "SELECT l.kind, p.* FROM ParentLink l JOIN Person p ON p.id = l.child_id"
             " WHERE l.parent_id = ? ORDER BY p.id",
             (person_id,),
         )
