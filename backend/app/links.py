@@ -162,7 +162,8 @@ def create_link(
     return {"ids": ids}
 
 
-LINK_ID = re.compile(r"^(?:(p):(\d+)-(\d+)|(c):(\d+))$", re.ASCII)
+# Up to 18 digits, so every id fits in SQLite's 64-bit integers; \Z (not $) so a trailing newline is not accepted.
+LINK_ID = re.compile(r"(?:(p):(\d{1,18})-(\d{1,18})|(c):(\d{1,18}))\Z", re.ASCII)
 
 
 @router.delete("/links/{link_id}", status_code=204)

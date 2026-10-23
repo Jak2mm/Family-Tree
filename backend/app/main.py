@@ -49,17 +49,21 @@ def create_app(
                 thread.join(timeout=10)
             lock.close()
 
-    app = FastAPI(title="Family Tree", lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json: the API is for this app's own pages only.
+    app = FastAPI(title="Family Tree", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
     app.state.scheduler_thread = None
 
     @app.exception_handler(RequestValidationError)
     async def plain_validation_error(request: Request, exc: RequestValidationError):
         first = exc.errors()[0]
+        if tuple(first["loc"]) == ("body",):  # the whole request, not one field: no technical wording
+            return JSONResponse(status_code=422, content={"detail": "Something in the form was not accepted. Please check it and try again."})
         field = next((str(p) for p in reversed(first["loc"]) if p != "body"), "request")
         return JSONResponse(status_code=422, content={"detail": f"Please check the {field} you entered: {first['msg']}."})
 
     app.add_middleware(upload_limit.UploadSizeLimit)
+    app.add_middleware(SecurityHeaders)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(audit.router)
@@ -78,6 +82,34 @@ def create_app(
         _serve_frontend(app, dist)
 
     return app
+
+
+SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    (b"referrer-policy", b"no-referrer"),
+    # The built front end loads only its own files; React sets some inline style attributes, hence 'unsafe-inline' for styles.
+    (b"content-security-policy", b"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"),
+]
+
+
+class SecurityHeaders:
+    """ASGI middleware: add the security headers to every response (API, pages and files)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                names = {k.lower() for k, _ in message.get("headers", [])}
+                message["headers"] = [*message.get("headers", []), *((k, v) for k, v in SECURITY_HEADERS if k not in names)]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def _serve_frontend(app: FastAPI, dist: Path) -> None:

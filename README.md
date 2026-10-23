@@ -342,9 +342,10 @@ The app starts and works even when the NAS is off at start-up. Remember: never u
 
 **Photo uploads say they cannot be saved though the NAS is on.** The app's user cannot write to the folders. See step 2d.
 
-**I forgot the administrator password.** There is no "forgot password" link. If you have a second administrator, they can set a new password
-in **Settings > Users**. (So it is a good idea to make a second administrator.) If you have no other administrator, run these
-three commands on the VM, putting your own username and new password (at least 8 characters, no quote marks) in:
+**I forgot the administrator password.** There is no "forgot password" link, and there is only one administrator (the account
+made on first start; the app cannot make another one), so nobody else can reset it in **Settings > Users**. Keep the password in a
+password manager. If it is lost, run these three commands on the VM, putting your own username and new password (at least
+8 characters, no quote marks) in:
 
 ```
 docker compose stop
