@@ -24,8 +24,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             Family tree
           </a>
           {can("admin") && (
-            <a href="#/admin" aria-current={here("admin")}>
-              Admin
+            <a href="#/settings" aria-current={here("settings")}>
+              Settings
             </a>
           )}
         </nav>

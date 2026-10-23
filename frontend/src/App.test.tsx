@@ -54,7 +54,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
-  it("shows navigation for a signed-in admin, including Admin and Family tree", async () => {
+  it("shows navigation for a signed-in admin, including Settings and Family tree", async () => {
     mockFetch({
       "GET /api/me": { body: meWith(["read", "admin"]) },
       "GET /api/me/preferences": { body: PREFS },
@@ -62,10 +62,10 @@ describe("App", () => {
     });
     render(<App />);
     expect(await screen.findByRole("link", { name: "Family tree" })).toHaveAttribute("href", "#/tree");
-    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "#/admin");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
   });
 
-  it("hides the Admin link from other users and signs out through the menu", async () => {
+  it("hides the Settings link from other users and signs out through the menu", async () => {
     const net = mockFetch({
       "GET /api/me": { body: meWith(["read"]) },
       "GET /api/me/preferences": { body: PREFS },
@@ -75,7 +75,7 @@ describe("App", () => {
     });
     render(<App />);
     await screen.findByRole("link", { name: "Family tree" });
-    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /sam/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();

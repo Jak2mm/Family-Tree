@@ -6,14 +6,14 @@ export type Route =
   | { name: "personEdit"; id: number }
   | { name: "personNew" }
   | { name: "tree" }
-  | { name: "admin" }
+  | { name: "settings" }
   | { name: "notFound" };
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, "").replace(/\/+$/, "");
   if (path === "" || path === "people") return { name: "people" };
   if (path === "tree") return { name: "tree" };
-  if (path === "admin") return { name: "admin" };
+  if (path === "settings") return { name: "settings" };
   if (path === "person/new") return { name: "personNew" };
   const m = /^person\/(\d+)(\/edit)?$/.exec(path);
   if (m) return m[2] ? { name: "personEdit", id: Number(m[1]) } : { name: "person", id: Number(m[1]) };

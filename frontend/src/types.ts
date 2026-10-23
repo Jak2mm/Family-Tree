@@ -128,3 +128,54 @@ export interface AppUser {
   can_delete: boolean;
   active: boolean;
 }
+
+export interface BackupSettings {
+  times: string[];
+  days: number[] | null;
+  retention: number;
+  session_timeout_hours: number;
+  backup_folder: string;
+}
+
+export interface BackupStatus {
+  last_run: string | null;
+  ok: boolean | null;
+  size: number | null;
+  error: string | null;
+  nas_available: boolean;
+  warning: string | null;
+  next_run: string | null;
+  retry: { retrying: boolean; next_retry_at: string | null };
+}
+
+export interface BackupResult {
+  ok: boolean;
+  path: string | null;
+  size: number | null;
+  error: string | null;
+}
+
+export interface Vulnerability {
+  package: string;
+  version: string | null;
+  id: string;
+  fix_versions: string[];
+  description: string;
+}
+
+export interface DependencyCheck {
+  checked_at: string | null;
+  vulnerabilities: Vulnerability[];
+  check_failed: boolean;
+  message: string;
+}
+
+export interface AuditRow {
+  id: number;
+  user_id: number | null;
+  username: string | null;
+  action: string;
+  record_type: string;
+  record_id: number | null;
+  created_at: string;
+}

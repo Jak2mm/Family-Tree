@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, messageOf } from "./api";
+import { AdminSettings } from "./components/AdminSettings";
 import { Login } from "./components/Login";
 import { PeopleList } from "./components/PeopleList";
 import { PersonForm } from "./components/PersonForm";
@@ -27,8 +28,8 @@ function Page({ route }: { route: Route }) {
       return <PersonForm key="new" />;
     case "tree":
       return <TreeView />;
-    case "admin":
-      return <Placeholder title="Admin">The admin page is coming soon.</Placeholder>;
+    case "settings":
+      return <AdminSettings />;
     default:
       return <Placeholder title="Page not found">That page does not exist. Use the links at the top to find your way.</Placeholder>;
   }

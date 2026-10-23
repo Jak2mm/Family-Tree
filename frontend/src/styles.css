@@ -189,3 +189,13 @@ dialog.confirm h2 { margin-top: 0; }
 dialog.link-popup { max-width: min(32rem, calc(100vw - 2 * var(--gap))); }
 .link-popup .confirm-body { display: grid; gap: var(--gap); }
 .link-popup select[size] { height: auto; }
+
+/* admin settings */
+.check { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.users { list-style: none; padding: 0; margin: 0 0 var(--gap); display: grid; gap: 8px; }
+.user-row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
+.user-row.off { opacity: 0.8; background: var(--band); }
+.user-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.badge { background: var(--band); border: 1px solid var(--border); border-radius: 999px; padding: 0 10px; font-size: 0.85rem; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); }
+.warnings, .activity { padding-left: 1.2rem; display: grid; gap: 6px; }

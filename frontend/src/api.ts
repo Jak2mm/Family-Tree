@@ -1,4 +1,4 @@
-import type { AppUser, LinkInfo, Me, NewLink, PersonInput, PersonSummary, PlaceLived, Preferences, Profile, TreeData } from "./types";
+import type { AppUser, AuditRow, BackupResult, BackupSettings, BackupStatus, DependencyCheck, LinkInfo, Me, NewLink, PersonInput, PersonSummary, PlaceLived, Preferences, Profile, TreeData } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public data: Record<string, unknown> = {}) {
@@ -101,12 +101,13 @@ export const api = {
   undoLink: (linkId: string) => request<void>("DELETE", `/api/links/${enc(linkId)}`),
   getTree: () => request<TreeData>("GET", "/api/tree"),
 
-  getBackupSettings: () => request<Record<string, unknown>>("GET", "/api/settings/backup"),
-  saveBackupSettings: (settings: Record<string, unknown>) => request<Record<string, unknown>>("PUT", "/api/settings/backup", settings),
-  backupStatus: () => request<Record<string, unknown>>("GET", "/api/backup/status"),
-  runBackup: () => request<Record<string, unknown>>("POST", "/api/backup/run"),
-  getDependencyCheck: () => request<Record<string, unknown>>("GET", "/api/settings/dependency-check"),
-  runDependencyCheck: () => request<Record<string, unknown>>("POST", "/api/settings/dependency-check"),
+  getBackupSettings: () => request<BackupSettings>("GET", "/api/settings/backup"),
+  saveBackupSettings: (settings: Record<string, unknown>) => request<BackupSettings>("PUT", "/api/settings/backup", settings),
+  backupStatus: () => request<BackupStatus>("GET", "/api/backup/status"),
+  runBackup: () => request<BackupResult>("POST", "/api/backup/run"),
+  getDependencyCheck: () => request<DependencyCheck>("GET", "/api/settings/dependency-check"),
+  runDependencyCheck: () => request<DependencyCheck>("POST", "/api/settings/dependency-check"),
+  listAudit: () => request<AuditRow[]>("GET", "/api/audit?limit=50"),
   listUsers: () => request<AppUser[]>("GET", "/api/users"),
   createUser: (user: Record<string, unknown>) => request<AppUser>("POST", "/api/users", user),
   updateUser: (id: number, changes: Record<string, unknown>) => request<AppUser>("PATCH", `/api/users/${id}`, changes),
