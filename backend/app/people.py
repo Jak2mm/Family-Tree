@@ -211,7 +211,7 @@ def create_person(body: NewPerson, user: CurrentUser = Depends(require("add")), 
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (given, body.family_name.strip(), body.birth_date, body.birth_place, body.death_date, body.occupation, body.bio),
     )
-    audit.record(conn, user.id, "create", "person", cur.lastrowid)
+    audit.record(conn, user.id, "create", "person", cur.lastrowid, person=cur.lastrowid)
     conn.commit()
     return profile(conn, cur.lastrowid)
 
@@ -245,7 +245,7 @@ def update_person(
             f"UPDATE Person SET {columns}, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
             (*changes.values(), person_id),
         )
-    audit.record(conn, user.id, "update", "person", person_id)
+    audit.record(conn, user.id, "update", "person", person_id, person=person_id)
     conn.commit()
     return profile(conn, person_id)
 
@@ -269,9 +269,10 @@ def remove_person(
                     "links": found,
                 },
             )
+    name = audit.name_of(conn, person_id)  # kept for the activity list after the person is gone
     try:
         files = delete_person(conn, person_id)
-        audit.record(conn, user.id, "delete", "person", person_id)
+        audit.record(conn, user.id, "delete", "person", person_id, person=person_id, label=name)
     except Exception:
         conn.rollback()
         raise
@@ -343,6 +344,5 @@ def put_preferences(body: Preferences, user: CurrentUser = Depends(current_user)
         " ON CONFLICT(user_id) DO UPDATE SET display_options = excluded.display_options, last_layout = excluded.last_layout",
         (user.id, options, str(merged["layout"])),
     )
-    audit.record(conn, user.id, "update", "preferences", user.id)
     conn.commit()
     return merged

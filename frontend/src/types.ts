@@ -185,5 +185,7 @@ export interface AuditRow {
   action: string;
   record_type: string;
   record_id: number | null;
+  /** The names of the people the entry is about, when it is about people (for example "Ann Smith → Bob Smith"). */
+  subject?: string | null;
   created_at: string;
 }

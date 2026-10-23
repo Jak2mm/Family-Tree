@@ -292,6 +292,6 @@ def set_profile_photo(
         "UPDATE Person SET profile_photo_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
         (photo_id, person_id),
     )
-    audit.record(conn, user.id, "update", "person", person_id)
+    audit.record(conn, user.id, "update", "person", person_id, person=person_id)
     conn.commit()
     return people.profile(conn, person_id)

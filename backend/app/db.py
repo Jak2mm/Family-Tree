@@ -86,7 +86,10 @@ CREATE TABLE IF NOT EXISTS AuditEntry (
     action TEXT NOT NULL,
     record_type TEXT NOT NULL,
     record_id INTEGER,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    person_id INTEGER,        -- the person the entry is about (no foreign key: kept after the person is deleted)
+    other_person_id INTEGER,  -- the second person of a parent link (the child) or partnership
+    label TEXT                -- their names when the entry was written, shown if they are later deleted
 );
 
 CREATE TABLE IF NOT EXISTS Session (
@@ -123,6 +126,15 @@ def connect(path: str, check_same_thread: bool = True) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the first release, with their types. Older databases (and restored backups) get them on start.
+ADDED_COLUMNS = {"AuditEntry": {"person_id": "INTEGER", "other_person_id": "INTEGER", "label": "TEXT"}}
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    for table, columns in ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, kind in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     conn.commit()

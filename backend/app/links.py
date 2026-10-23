@@ -108,7 +108,7 @@ def create_partnership(conn: sqlite3.Connection, user: CurrentUser, body: NewLin
         "INSERT INTO Partnership (person_a_id, person_b_id, kind, start_year) VALUES (?, ?, ?, ?)",
         (body.a, body.b, body.partnership_kind, body.start_year),
     )
-    audit.record(conn, user.id, "create", "partnership", cur.lastrowid)
+    audit.record(conn, user.id, "create", "partnership", cur.lastrowid, person=body.a, other=body.b)
     return [f"c:{cur.lastrowid}"]
 
 
@@ -131,7 +131,7 @@ def create_parent_links(conn: sqlite3.Connection, user: CurrentUser, body: NewLi
     ids = []
     for parent, child, kind in rows:
         conn.execute("INSERT INTO ParentLink (parent_id, child_id, kind) VALUES (?, ?, ?)", (parent, child, kind))
-        audit.record(conn, user.id, "create", "parent_link", child)
+        audit.record(conn, user.id, "create", "parent_link", child, person=parent, other=child)
         ids.append(f"p:{parent}-{child}")
     return ids
 
@@ -175,14 +175,15 @@ def undo_link(link_id: str, user: CurrentUser = Depends(require("edit")), conn: 
     if m.group(1):
         parent, child = int(m.group(2)), int(m.group(3))
         cur = conn.execute("DELETE FROM ParentLink WHERE parent_id = ? AND child_id = ?", (parent, child))
-        action, record_id = "parent_link", child
+        action, record_id, people = "parent_link", child, (parent, child)
     else:
         record_id = int(m.group(5))
+        row = conn.execute("SELECT person_a_id, person_b_id FROM Partnership WHERE id = ?", (record_id,)).fetchone()
         cur = conn.execute("DELETE FROM Partnership WHERE id = ?", (record_id,))
-        action = "partnership"
+        action, people = "partnership", (tuple(row) if row else (None, None))
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="That relationship could not be found.")
-    audit.record(conn, user.id, "delete", action, record_id)
+    audit.record(conn, user.id, "delete", action, record_id, person=people[0], other=people[1])
     conn.commit()
     return Response(status_code=204)
 
@@ -215,6 +216,6 @@ def edit_partnership(
         "UPDATE Partnership SET kind = ?, start_year = ?, end_year = ? WHERE id = ?",
         (merged["kind"], merged["start_year"], merged["end_year"], row["id"]),
     )
-    audit.record(conn, user.id, "update", "partnership", row["id"])
+    audit.record(conn, user.id, "update", "partnership", row["id"], person=row["person_a_id"], other=row["person_b_id"])
     conn.commit()
     return {"id": f"c:{row['id']}", "kind": merged["kind"], "start_year": merged["start_year"], "end_year": merged["end_year"]}

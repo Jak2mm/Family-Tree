@@ -237,6 +237,22 @@ describe("Updates", () => {
 });
 
 describe("Recent activity", () => {
+  it("names the people involved instead of record numbers", async () => {
+    mockFetch(routes({
+      "GET /api/audit?limit=50": {
+        body: [
+          { id: 3, user_id: 2, username: "jo", action: "create", record_type: "parent_link", record_id: 2, subject: "Ann Smith → Bob Smith", created_at: "2026-10-20T12:30:00Z" },
+          { id: 2, user_id: 2, username: "jo", action: "delete", record_type: "person", record_id: 7, subject: "Cy Jones", created_at: "2026-10-20T12:00:00Z" },
+          { id: 1, user_id: 2, username: "jo", action: "create", record_type: "partnership", record_id: 4, subject: "Ann Smith and Di Ray", created_at: "2026-10-20T11:00:00Z" },
+        ],
+      },
+    }));
+    renderAs(["read", "admin"], <AdminSettings />);
+    expect(await screen.findByText("jo added parent link: Ann Smith → Bob Smith")).toBeInTheDocument();
+    expect(screen.getByText("jo deleted person: Cy Jones")).toBeInTheDocument();
+    expect(screen.getByText("jo added partnership: Ann Smith and Di Ray")).toBeInTheDocument();
+  });
+
   it("shows who did what to which record and when", async () => {
     mockFetch(routes({
       "GET /api/audit?limit=50": {

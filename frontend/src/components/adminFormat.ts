@@ -27,5 +27,6 @@ const NOUNS: Record<string, string> = {
 export function describeAudit(entry: AuditRow): { who: string; what: string } {
   const verb = VERBS[entry.action] ?? entry.action;
   const noun = NOUNS[entry.record_type] ?? entry.record_type;
-  return { who: entry.username ?? "A removed user", what: `${verb} ${noun}${entry.record_id === null ? "" : ` ${entry.record_id}`}` };
+  const about = entry.subject ? `: ${entry.subject}` : entry.record_id === null ? "" : ` ${entry.record_id}`;
+  return { who: entry.username ?? "A removed user", what: `${verb} ${noun}${about}` };
 }
