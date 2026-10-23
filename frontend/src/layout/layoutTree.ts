@@ -12,7 +12,6 @@ export type LayoutId = 1 | 2 | 3 | 4;
 export interface LaidOutNode { id: number; x: number; y: number }
 export interface Band { label: string; start: number; size: number }
 export interface TreeLayout { nodes: LaidOutNode[]; bands: Band[]; width: number; height: number }
-export interface Edge { kind: "parent" | "partner"; points: [number, number][] }
 
 // ---------------------------------------------------------------------------------------------
 // Work happens in "slots": the position across a band is a number where 1 is one card plus its gap.
@@ -223,46 +222,4 @@ function chain(found: number[], partners: Map<number, number[]>, cmp: (a: number
     grow(q, sides[i % 2]);
   });
   return [...sides[1].reverse(), root, ...sides[0]];
-}
-
-/** Lines to draw, from card positions alone: partner links, and one line per child from the middle of its parents. */
-export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId): Edge[] {
-  const rows = layout === 1 || layout === 3;
-  const at = new Map(nodes.map((n) => [n.id, n]));
-  const centre = (n: LaidOutNode): [number, number] => [n.x + CARD_W / 2, n.y + CARD_H / 2];
-  const edges: Edge[] = [];
-  const partnered = new Set<string>();
-  for (const [a, b] of data.partnerships) {
-    const na = at.get(a), nb = at.get(b);
-    const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
-    if (!na || !nb || a === b || partnered.has(key)) continue;
-    partnered.add(key);
-    edges.push({ kind: "partner", points: [centre(na), centre(nb)] });
-  }
-  const parentsOf = new Map<number, number[]>();
-  for (const [p, c] of data.parent_links) if (at.has(p) && at.has(c) && p !== c) parentsOf.set(c, [...(parentsOf.get(c) ?? []), p]);
-  for (const [childId, list] of [...parentsOf].sort((a, b) => a[0] - b[0])) {
-    const child = at.get(childId)!;
-    const target: [number, number] = rows ? [child.x + CARD_W / 2, child.y] : [child.x + CARD_W, child.y + CARD_H / 2];
-    const done = new Set<number>();
-    for (const pid of [...new Set(list)].sort((a, b) => a - b)) {
-      if (done.has(pid)) continue;
-      done.add(pid);
-      const parent = at.get(pid)!;
-      const mate = list.find((q) => !done.has(q) && partnered.has(`${Math.min(pid, q)}-${Math.max(pid, q)}`));
-      let source: [number, number];
-      if (mate !== undefined) {
-        done.add(mate);
-        const [ax, ay] = centre(parent), [bx, by] = centre(at.get(mate)!);
-        source = [(ax + bx) / 2, (ay + by) / 2];
-      } else {
-        source = rows ? [parent.x + CARD_W / 2, parent.y + CARD_H] : [parent.x, parent.y + CARD_H / 2];
-      }
-      const points: [number, number][] = rows
-        ? [source, [source[0], (source[1] + target[1]) / 2], [target[0], (source[1] + target[1]) / 2], target]
-        : [source, [(source[0] + target[0]) / 2, source[1]], [(source[0] + target[0]) / 2, target[1]], target];
-      edges.push({ kind: "parent", points });
-    }
-  }
-  return edges;
 }

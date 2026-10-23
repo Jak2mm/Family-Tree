@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TreeData, TreePerson } from "../types";
-import { CARD_H, CARD_W, GAP, edgesFor, layoutTree } from "./layoutTree";
+import { edgesFor } from "./edges";
+import { CARD_H, CARD_W, GAP, layoutTree } from "./layoutTree";
 
 type Spec = { id: number; name?: string; born?: number | null; gen?: number; date?: string | null };
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMe } from "../me";
-import { CARD_H, CARD_W, edgesFor, layoutTree, type LayoutId } from "../layout/layoutTree";
+import { edgesFor } from "../layout/edges";
+import { CARD_H, CARD_W, layoutTree, type LayoutId } from "../layout/layoutTree";
 import { navigate } from "../router";
 import { DisplayMenu } from "./DisplayMenu";
 import { ErrorMessage } from "./ErrorMessage";
