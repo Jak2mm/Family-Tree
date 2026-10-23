@@ -60,7 +60,7 @@ Pick **one** of the two ways. Replace `192.168.1.10` with your NAS address and t
 Add this line at the end of the file `/etc/fstab` (`sudo nano /etc/fstab`):
 
 ```
-192.168.1.10:/volume1/family-tree  /mnt/nas/family-tree  nfs  defaults,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0  0
+192.168.1.10:/volume1/family-tree  /mnt/nas/family-tree  nfs  defaults,_netdev,nofail  0  0
 ```
 
 **SMB / Windows sharing.** Install the helper once: `sudo apt install cifs-utils`.
@@ -74,12 +74,16 @@ sudo chmod 600 /root/.nas-credentials
 Then add this line to `/etc/fstab`:
 
 ```
-//192.168.1.10/family-tree  /mnt/nas/family-tree  cifs  credentials=/root/.nas-credentials,uid=1000,gid=1000,file_mode=0660,dir_mode=0770,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0  0
+//192.168.1.10/family-tree  /mnt/nas/family-tree  cifs  credentials=/root/.nas-credentials,uid=1000,gid=1000,file_mode=0660,dir_mode=0770,_netdev,nofail  0  0
 ```
 
-What the odd words mean: `nofail` lets the VM start even if the NAS is off. `_netdev` waits for the network.
-`x-systemd.automount` mounts the share the first time something looks at it, which avoids the VM
-starting Docker before the NAS is ready.
+What the odd words mean: `nofail` lets the VM start even if the NAS is off, and `_netdev` waits for the network.
+With these a missing NAS simply leaves `/mnt/nas/family-tree` as an empty folder, the app still starts, and it shows
+"NAS offline" until the share is mounted (with `sudo mount -a`, or by restarting the VM).
+
+**Do not add `x-systemd.automount` to this line.** It makes the folder a "mount on first use" point. Docker touches
+it when it starts the app, and if the NAS is off that wait ends in an error. The app then does not start at all, and Docker does not
+try again by itself after a VM restart. A plain mount avoids that.
 
 Now create the mount folder and mount it:
 
@@ -103,7 +107,7 @@ The empty file `.family-tree-nas-ok` is a safety marker. The app looks for it ev
 backup. If it is missing, the NAS is probably not mounted and the folders are just empty folders on the VM's disk.
 The app then treats the NAS as **offline** (the tree, profiles and text keep working; uploads and backups say the
 NAS is offline) rather than quietly saving into the wrong place where the files would vanish when the NAS comes back.
-When the NAS is mounted again the app notices **by itself**; you do not need to restart it.
+When the NAS is mounted again (`sudo mount -a` or a VM restart) the app notices **by itself**, because it looks for the marker each time. If it still says offline a minute later, run `docker compose restart`.
 
 ### 2d. Make sure the app is allowed to write there (do this BEFORE the first start)
 
@@ -317,7 +321,7 @@ You should see `photos`, `backups` and `.family-tree-nas-ok` (use `ls -a` to see
 /mnt/nas/family-tree/.family-tree-nas-ok`. The app notices a returning NAS by itself within a minute or so (the next upload or
 backup attempt); backups retry every 15 minutes. If it still shows offline after you have checked all of that, try
 `docker compose restart` (the share is passed into the app so that a later mount should appear without this, but a restart is harmless).
-The app starts and works even when the NAS is off at start-up.
+The app starts and works even when the NAS is off at start-up. Remember: never use `x-systemd.automount` in the fstab line (step 2b).
 
 **Photo uploads say they cannot be saved though the NAS is on.** The app's user cannot write to the folders. See step 2d.
 

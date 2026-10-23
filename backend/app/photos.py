@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 
 from app import audit
 from app.security import CurrentUser, get_conn, require
-from app.config import Settings, zone_for
+
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 

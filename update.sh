@@ -25,14 +25,18 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose is not available.
 
 BACKUP_FAILED="The backup failed, so nothing was changed. Fix the problem (is the NAS switched on and mounted? see README.md, Troubleshooting) and run ./update.sh again."
 
+# The Docker volume that holds the database: "<project name>_<volume name from docker-compose.yml>".
+PROJECT="$(docker compose config 2>/dev/null | sed -n 's/^name: *//p' | head -n 1)"
+DATA_VOLUME="${PROJECT:-family-tree}_$(docker compose config --volumes 2>/dev/null | head -n 1)"
+
 say "Step 1 of 5: taking a backup first"
 if [ -n "$(docker compose ps --status running --quiet app 2>/dev/null)" ]; then
     docker compose exec -T app python -m app.backup run || fail "$BACKUP_FAILED"
-elif docker image inspect family-tree:latest >/dev/null 2>&1; then
+elif docker image inspect family-tree:latest >/dev/null 2>&1 || docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
     echo "The app is stopped, so the backup is taken with a one-off copy of it."
     docker compose run --rm --no-deps app python -m app.backup run || fail "$BACKUP_FAILED"
 else
-    echo "This looks like a first install (the app has never been built here), so there is nothing to back up yet. Carrying on."
+    echo "This looks like a first install (no app image and no data have been created here yet), so there is nothing to back up yet. Carrying on."
 fi
 
 if [ "$PULL" -eq 1 ]; then

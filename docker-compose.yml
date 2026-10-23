@@ -22,8 +22,9 @@ services:
     volumes:
       # The database lives on the VM's own disk (a Docker volume), never on the NAS.
       - family_tree_data:/data
-      # The NAS share (photos and backups folders). The mount folder itself always exists, so the app
-      # starts even when the NAS is off; "rslave" lets a share mounted later appear inside the app.
+      # The NAS share (photos and backups folders). With a plain "nofail" fstab mount (README, step 2b) the
+      # mount folder exists even when the NAS is off, so the app still starts; "rslave" lets a share
+      # mounted later appear inside the app. Do NOT use x-systemd.automount for this folder.
       - type: bind
         source: "${NAS_MOUNT:?Set NAS_MOUNT in the .env file}"
         target: /nas
