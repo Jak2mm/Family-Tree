@@ -39,3 +39,20 @@ def test_empty_secret_file_is_regenerated(tmp_path):
     key = config._persisted_secret(str(tmp_path))
     assert len(key) == 64
     assert (tmp_path / "secret_key").read_text() == key
+
+
+def test_timezone_defaults_to_utc_and_honours_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("FAMILY_TREE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FAMILY_TREE_SECRET_KEY", "abc")
+    monkeypatch.delenv("FAMILY_TREE_TIMEZONE", raising=False)
+    assert load_settings().timezone == "UTC"
+    monkeypatch.setenv("FAMILY_TREE_TIMEZONE", "Australia/Sydney")
+    assert load_settings().timezone == "Australia/Sydney"
+
+
+def test_invalid_timezone_falls_back_to_utc_with_a_warning(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("FAMILY_TREE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FAMILY_TREE_SECRET_KEY", "abc")
+    monkeypatch.setenv("FAMILY_TREE_TIMEZONE", "Mars/Olympus")
+    assert load_settings().timezone == "UTC"
+    assert "Mars/Olympus" in caplog.text

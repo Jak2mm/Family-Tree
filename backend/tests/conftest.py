@@ -25,7 +25,7 @@ def settings(tmp_path):
 
 @pytest.fixture
 def app(settings):
-    return create_app(settings)
+    return create_app(settings, start_scheduler=False)
 
 
 @pytest.fixture

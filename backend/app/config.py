@@ -1,7 +1,11 @@
+import logging
 import os
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -10,6 +14,7 @@ class Settings:
     photos_dir: str
     backups_dir: str
     secret_key: str
+    timezone: str = "UTC"
 
 
 def load_settings() -> Settings:
@@ -24,7 +29,20 @@ def load_settings() -> Settings:
     photos_dir = os.environ.get("FAMILY_TREE_PHOTOS_DIR", os.path.join(data_dir, "photos"))
     backups_dir = os.environ.get("FAMILY_TREE_BACKUPS_DIR", os.path.join(data_dir, "backups"))
     secret_key = os.environ.get("FAMILY_TREE_SECRET_KEY") or _persisted_secret(data_dir)
-    return Settings(data_dir, photos_dir, backups_dir, secret_key)
+    timezone = os.environ.get("FAMILY_TREE_TIMEZONE", "UTC")
+    try:
+        ZoneInfo(timezone)
+    except Exception:  # unknown name, bad characters or missing tz data
+        log.warning("FAMILY_TREE_TIMEZONE %r is not a known time zone; using UTC.", timezone)
+        timezone = "UTC"
+    return Settings(data_dir, photos_dir, backups_dir, secret_key, timezone)
+
+
+def zone_for(settings: Settings) -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.timezone)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 def _persisted_secret(data_dir: str) -> str:
