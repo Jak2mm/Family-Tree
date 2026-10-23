@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMe } from "../me";
 import { edgesFor } from "../layout/edges";
-import { CARD_H, CARD_W, layoutTree, type LayoutId } from "../layout/layoutTree";
+import { CARD_W, cardHeight, layoutTree, type LayoutId } from "../layout/layoutTree";
 import { navigate } from "../router";
 import { DisplayMenu } from "./DisplayMenu";
 import { ErrorMessage } from "./ErrorMessage";
@@ -32,8 +32,9 @@ export function TreeView() {
   const canLink = can("add");
   const drag = useCardDrag(canLink, (a, b) => (setPair({ a, b }), setPicked(null)));
 
-  const laid = useMemo(() => (data ? layoutTree(data, layout) : null), [data, layout]);
-  const edges = useMemo(() => (data && laid ? edgesFor(data, laid.nodes, layout) : []), [data, laid, layout]);
+  const cardH = cardHeight(prefs.card_fields); // taller cards when more fields are shown, so no text is cut off
+  const laid = useMemo(() => (data ? layoutTree(data, layout, 10, cardH) : null), [data, layout, cardH]);
+  const edges = useMemo(() => (data && laid ? edgesFor(data, laid.nodes, layout, cardH) : []), [data, laid, layout, cardH]);
   const people = useMemo(() => new Map(data?.people.map((p) => [p.id, p])), [data]);
   const byName = useMemo(() => [...(data?.people ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [data]);
 
@@ -43,8 +44,8 @@ export function TreeView() {
     const children = new Set(data.parent_links.map(([, c]) => c));
     const roots = data.people.filter((p) => !children.has(p.id)).sort((a, b) => (a.birth_year ?? Infinity) - (b.birth_year ?? Infinity) || a.id - b.id);
     const node = laid.nodes.find((n) => n.id === roots[0]?.id);
-    return node ? [node.x + CARD_W / 2, node.y + CARD_H / 2] : null;
-  }, [data, laid]);
+    return node ? [node.x + CARD_W / 2, node.y + cardH / 2] : null;
+  }, [data, laid, cardH]);
   const fitTree = () => laid && fit(laid.width, laid.height, anchor);
 
   // Let the tree fill the window below the toolbar.
@@ -69,8 +70,8 @@ export function TreeView() {
   // Re-centre on the chosen person, also after the layout changes their position.
   useEffect(() => {
     const node = laid?.nodes.find((n) => n.id === focusId);
-    if (node) centreOn(node.x + CARD_W / 2, node.y + CARD_H / 2);
-  }, [focusId, laid, centreOn]);
+    if (node) centreOn(node.x + CARD_W / 2, node.y + cardH / 2);
+  }, [focusId, laid, centreOn, cardH]);
 
   useEffect(() => {
     if (!linkMode) return;
@@ -158,6 +159,7 @@ export function TreeView() {
                 person={people.get(n.id)!}
                 x={n.x}
                 y={n.y}
+                height={cardH}
                 fields={prefs.card_fields}
                 dateFormat={dateFormat}
                 picked={linkMode ? picked === n.id : null}

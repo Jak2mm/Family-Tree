@@ -4,6 +4,16 @@ import type { TreeData, TreePerson } from "../types";
 export const CARD_W = 200;
 export const CARD_H = 96;
 export const GAP = 40;
+const LINE = 19; // one line of card text (0.9rem at 1.3 line height), rounded up
+const CARD_PAD = 18; // padding above and below the text, plus the border
+const PHOTO = 48;
+
+/** Height of a card that has room for every line the chosen fields can show: at least CARD_H. */
+export function cardHeight(fields: string[]): number {
+  const has = (f: string) => fields.includes(f);
+  const lines = (has("name") ? 2 : 0) + (has("dates") ? 2 : 0) + (has("age") ? 1 : 0) + (has("occupation") ? 1 : 0);
+  return Math.max(CARD_H, Math.max(lines * LINE, has("photo") ? PHOTO : 0) + CARD_PAD);
+}
 export const PAD = 24;
 /** Extra room, in card slots, between families that are not related through the tree. */
 const FAMILY_GAP = 1.5;
@@ -54,7 +64,7 @@ const extent = (c: Contour): [number, number] => {
   return [lo, hi];
 };
 
-export function layoutTree(data: TreeData, layout: LayoutId, bandYears = 10): TreeLayout {
+export function layoutTree(data: TreeData, layout: LayoutId, bandYears = 10, cardH = CARD_H): TreeLayout {
   const people = new Map<number, TreePerson>(data.people.map((p) => [p.id, p]));
   if (people.size === 0) return { nodes: [], bands: [], width: 0, height: 0 };
 
@@ -192,8 +202,8 @@ export function layoutTree(data: TreeData, layout: LayoutId, bandYears = 10): Tr
 
   // Slots to pixels.
   const rows = layout === 1 || layout === 3;
-  const crossStep = (rows ? CARD_W : CARD_H) + GAP;
-  const levelStep = (rows ? CARD_H : CARD_W) + GAP;
+  const crossStep = (rows ? CARD_W : cardH) + GAP;
+  const levelStep = (rows ? cardH : CARD_W) + GAP;
   const origin = Math.min(...slots.values());
   const levelPos = (level: number) => PAD + (rows ? level : keys.length - 1 - level) * levelStep;
   const nodes = [...slots.keys()].sort((a, b) => a - b).map((id) => {
@@ -201,7 +211,7 @@ export function layoutTree(data: TreeData, layout: LayoutId, bandYears = 10): Tr
     return rows ? { id, x: cross, y: along } : { id, x: along, y: cross };
   });
   const bands = keys.map((key, level) => ({ label: labelOf(key), start: levelPos(level) - GAP / 2, size: levelStep }));
-  const crossEnd = Math.max(...nodes.map((n) => (rows ? n.x : n.y))) + (rows ? CARD_W : CARD_H) + PAD;
+  const crossEnd = Math.max(...nodes.map((n) => (rows ? n.x : n.y))) + (rows ? CARD_W : cardH) + PAD;
   const levelEnd = keys.length * levelStep - GAP + 2 * PAD;
   return { nodes, bands, width: rows ? crossEnd : levelEnd, height: rows ? levelEnd : crossEnd };
 }

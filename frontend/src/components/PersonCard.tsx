@@ -1,7 +1,7 @@
 import type { PointerEvent } from "react";
 import { thumbUrl } from "../api";
 import { formatDate, type DateFormat } from "../dates";
-import { CARD_H, CARD_W } from "../layout/layoutTree";
+import { CARD_W } from "../layout/layoutTree";
 import type { TreePerson } from "../types";
 
 export function ageText(p: TreePerson, thisYear: number): string {
@@ -11,17 +11,20 @@ export function ageText(p: TreePerson, thisYear: number): string {
   return p.death_year === null ? `age ${years}` : `died aged ${years}`;
 }
 
-export function datesText(p: TreePerson, fmt: DateFormat): string {
+/** The date lines of a card: "Born …" and "Died …" on their own lines, or "1921 – 1998" when only years are known. */
+export function dateLines(p: TreePerson, fmt: DateFormat): string[] {
   const born = p.birth_date ? formatDate(p.birth_date, fmt) : p.birth_year === null ? "" : String(p.birth_year);
   const died = p.death_date ? formatDate(p.death_date, fmt) : p.death_year === null ? "" : String(p.death_year);
-  if (born && died) return `${born} – ${died}`;
-  return born ? `Born ${born}` : died ? `Died ${died}` : "";
+  if (/^\d{1,4}$/.test(born) && /^\d{1,4}$/.test(died)) return [`${born} – ${died}`];
+  return [born && `Born ${born}`, died && `Died ${died}`].filter(Boolean);
 }
 
 interface Props {
   person: TreePerson;
   x: number;
   y: number;
+  /** From cardHeight(fields), the same height the layout used. */
+  height: number;
   fields: string[];
   dateFormat: DateFormat;
   /** null outside link mode; otherwise whether this card is the one picked first. */
@@ -31,14 +34,14 @@ interface Props {
   onPointerDown: (e: PointerEvent) => void;
 }
 
-export function PersonCard({ person, x, y, fields, dateFormat, picked, focused, onActivate, onPointerDown }: Props) {
+export function PersonCard({ person, x, y, height, fields, dateFormat, picked, focused, onActivate, onPointerDown }: Props) {
   const shows = (f: string) => fields.includes(f);
-  const lines = [shows("dates") && datesText(person, dateFormat), shows("age") && ageText(person, new Date().getFullYear())].filter(Boolean);
+  const lines = [...(shows("dates") ? dateLines(person, dateFormat) : []), shows("age") && ageText(person, new Date().getFullYear())].filter(Boolean);
   return (
     <button
       type="button"
       className={`tree-card${picked ? " picked" : ""}${focused ? " focused" : ""}`}
-      style={{ left: x, top: y, width: CARD_W, height: CARD_H }}
+      style={{ left: x, top: y, width: CARD_W, height }}
       data-person-id={person.id}
       data-focused={focused || undefined}
       aria-pressed={picked === null ? undefined : picked}

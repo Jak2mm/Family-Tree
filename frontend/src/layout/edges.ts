@@ -46,11 +46,11 @@ const tidy = (line: Pt[]) => line.filter((p, i) => i === 0 || p[0] !== line[i - 
  * Each family (a couple, or a lone parent) gets its own bar above its children, and no line is laid on top of
  * another family's line, so it is always clear whose children are whose.
  */
-export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId): Edge[] {
+export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId, cardH = CARD_H): Edge[] {
   const rows = layout === 1 || layout === 3;
   const boxes = new Map<number, Box>();
   for (const n of nodes) {
-    boxes.set(n.id, rows ? { u0: n.x, u1: n.x + CARD_W, v0: n.y, v1: n.y + CARD_H } : { u0: n.y, u1: n.y + CARD_H, v0: -(n.x + CARD_W), v1: -n.x });
+    boxes.set(n.id, rows ? { u0: n.x, u1: n.x + CARD_W, v0: n.y, v1: n.y + cardH } : { u0: n.y, u1: n.y + cardH, v0: -(n.x + CARD_W), v1: -n.x });
   }
   const real = (p: Pt): Pt => (rows ? [p[0], p[1]] : [-p[1], p[0]]);
   const middle = (b: Box): Pt => [(b.u0 + b.u1) / 2, (b.v0 + b.v1) / 2];
