@@ -284,3 +284,20 @@ def test_every_write_is_audited(full, db):
 def test_failed_write_is_not_audited(full, db):
     full.post("/api/people", json={"given_names": "Ada", "birth_date": "1932-02-30"})
     assert audit_rows(db) == []
+
+
+# Mixed-precision dates: only reject when death is provably before birth
+
+@pytest.mark.parametrize("birth, death", [("1950-06", "1950"), ("1950-06-10", "1950-06")])
+def test_mixed_precision_dates_accepted(full, birth, death):
+    r = full.post("/api/people", json={"given_names": "Ada", "birth_date": birth, "death_date": death})
+    assert r.status_code == 201
+    pid = r.json()["id"]
+    assert full.patch(f"/api/people/{pid}", json={"birth_date": birth, "death_date": death}).status_code == 200
+
+
+def test_mixed_precision_provably_earlier_death_rejected(full):
+    r = full.post("/api/people", json={"given_names": "Ada", "birth_date": "1950-06", "death_date": "1949"})
+    assert r.status_code == 422
+    pid = full.post("/api/people", json={"given_names": "Bo", "birth_date": "1950-06"}).json()["id"]
+    assert full.patch(f"/api/people/{pid}", json={"death_date": "1949"}).status_code == 422

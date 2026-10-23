@@ -1,6 +1,6 @@
 import pytest
 
-from app.dates import parse_date, sort_key
+from app.dates import parse_date, provably_before, sort_key
 
 
 def test_year_only():
@@ -40,3 +40,20 @@ def test_sort_order():
 def test_none_sorts_last():
     assert sort_key(None) > sort_key("9999-12-31")
     assert sorted([None, "1951", "1950"], key=sort_key) == ["1950", "1951", None]
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [
+        ("1949", "1950-06", True),
+        ("1950", "1950-06", False),
+        ("1950-05", "1950-06-10", True),
+        ("1950-06", "1950-06-10", False),
+        ("1950-06-10", "1950-06-10", False),
+        ("1950", "1950", False),
+        ("1950-06-09", "1950-06-10", True),
+        ("1950-06-10", "1950-06-09", False),
+    ],
+)
+def test_provably_before(a, b, expected):
+    assert provably_before(a, b) is expected

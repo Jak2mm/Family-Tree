@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app import audit
-from app.dates import parse_date, sort_key
+from app.dates import parse_date, provably_before
 from app.security import CurrentUser, current_user, get_conn, require
 
 router = APIRouter(prefix="/api")
@@ -63,7 +63,7 @@ def check_dates(birth: str | None, death: str | None) -> None:
                 status_code=422,
                 detail=f"Please check the {label}: use a year (1932), a month (1932-02) or a full date (1932-02-28) that exists.",
             )
-    if birth is not None and death is not None and sort_key(death) < sort_key(birth):
+    if birth is not None and death is not None and provably_before(death, birth):
         raise HTTPException(status_code=422, detail="The death date cannot be earlier than the birth date.")
 
 

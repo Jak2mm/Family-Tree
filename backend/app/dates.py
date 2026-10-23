@@ -36,3 +36,18 @@ def sort_key(s: str | None) -> tuple:
         return (1, 0, 0, 0)
     d = parse_date(s)
     return (0, d.year, d.month or 0, d.day or 0)
+
+
+def _bounds(s: str) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Earliest and latest possible day of a partial date, as (year, month, day)."""
+    d = parse_date(s)
+    first = (d.year, d.month or 1, d.day or 1)
+    last_month = d.month or 12
+    last = (d.year, last_month, d.day or calendar.monthrange(d.year, last_month)[1])
+    return first, last
+
+
+def provably_before(a: str, b: str) -> bool:
+    """True only if the latest possible moment of `a` is strictly earlier than
+    the earliest possible moment of `b`. A partial date means the whole year or month."""
+    return _bounds(a)[1] < _bounds(b)[0]
