@@ -20,8 +20,16 @@ A self-hosted family tree (genealogy) app for the owner's family, run on the own
 ### Non-goals (YAGNI)
 - Native Windows, iOS or Android apps.
 - Public internet access, public sign-up, social sign-in.
-- GEDCOM import/export, DNA features, maps, source citations. These can be added later.
 - Multiple separate family trees. There is one tree.
+
+### Planned for later (not in the first build)
+The owner wants these added in later phases. They are out of scope for the first build, but the design should not block them:
+- GEDCOM import and export.
+- DNA features.
+- Maps (places shown on a map).
+- Source citations (attaching sources to facts).
+
+Room left for them: places are stored as text now and can later be linked to map coordinates; facts such as birth and death are separate fields so citations can later attach to them; the readable JSON export in section 9 can serve as a starting point for GEDCOM export.
 
 ## 2. Architecture
 
