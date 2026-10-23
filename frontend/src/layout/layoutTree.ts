@@ -4,7 +4,7 @@ import type { TreeData, TreePerson } from "../types";
 export const CARD_W = 200;
 export const CARD_H = 96;
 export const GAP = 40;
-const PAD = 24;
+export const PAD = 24;
 /** Extra room, in card slots, between families that are not related through the tree. */
 const FAMILY_GAP = 1.5;
 
