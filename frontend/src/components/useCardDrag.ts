@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 const THRESHOLD = 5; // pixels of movement before a press becomes a drag
 
 /** Dragging one card onto another with plain pointer events. A press that barely moves stays an ordinary click. */
-export function useCardDrag(enabled: boolean, linkMode: boolean, onDrop: (from: number, to: number) => void) {
+export function useCardDrag(enabled: boolean, onDrop: (from: number, to: number) => void) {
   const [ghost, setGhost] = useState<{ id: number; x: number; y: number } | null>(null);
   const dropped = useRef(onDrop);
   dropped.current = onDrop;
@@ -12,8 +12,8 @@ export function useCardDrag(enabled: boolean, linkMode: boolean, onDrop: (from: 
   useEffect(() => () => cancel.current(), []);
 
   const start = (e: PointerEvent, id: number) => {
-    // Touch in link mode is for tap-then-tap; dragging there would fight scrolling and tapping.
-    if (!enabled || e.button !== 0 || (e.pointerType === "touch" && linkMode)) return;
+    // On touch screens tap-then-tap is the way to link, and a finger on a card moves the tree instead.
+    if (!enabled || e.button !== 0 || e.pointerType === "touch") return;
     const from = { x: e.clientX, y: e.clientY };
     let active = false;
     const move = (ev: globalThis.PointerEvent) => {

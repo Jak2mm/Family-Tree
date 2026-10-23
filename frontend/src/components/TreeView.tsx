@@ -22,7 +22,7 @@ export function TreeView() {
   const { can, dateFormat } = useMe();
   const { data, error, reload } = useTreeData();
   const { prefs, error: prefsError, save } = useTreePrefs();
-  const { view, viewport, zoomBy, centreOn, fit, handlers } = usePanZoom();
+  const { view, viewport, zoomBy, centreOn, fit, consumeClick: panned, handlers } = usePanZoom();
   const [linkMode, setLinkMode] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
   const [pair, setPair] = useState<{ a: number; b: number } | null>(null);
@@ -30,7 +30,7 @@ export function TreeView() {
 
   const layout = (LAYOUTS.some(([id]) => id === prefs.layout) ? prefs.layout : 1) as LayoutId;
   const canLink = can("add");
-  const drag = useCardDrag(canLink, linkMode, (a, b) => (setPair({ a, b }), setPicked(null)));
+  const drag = useCardDrag(canLink, (a, b) => (setPair({ a, b }), setPicked(null)));
 
   const laid = useMemo(() => (data ? layoutTree(data, layout) : null), [data, layout]);
   const edges = useMemo(() => (data && laid ? edgesFor(data, laid.nodes, layout) : []), [data, laid, layout]);
@@ -84,7 +84,7 @@ export function TreeView() {
     setPicked(null);
   };
   const activate = (id: number) => {
-    if (drag.consumeClick()) return;
+    if (drag.consumeClick() || panned()) return;
     if (!linkMode) return navigate(`/person/${id}`);
     if (picked === null) setPicked(id);
     else if (picked === id) setPicked(null);
