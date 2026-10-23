@@ -2,6 +2,7 @@ import hashlib
 import os
 import secrets
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -31,6 +32,14 @@ def format_time(t: datetime) -> str:
 
 def parse_time(s: str) -> datetime:
     return datetime.strptime(s, TIME_FORMAT).replace(tzinfo=timezone.utc)
+
+
+def normalise_username(name: str) -> str:
+    """Canonical form used for storing, looking up and rate-limiting usernames.
+
+    SQLite's NOCASE only folds ASCII, so fold Unicode here instead (NFC + casefold).
+    """
+    return unicodedata.normalize("NFC", name.strip()).casefold()
 
 
 def hash_password(p: str) -> str:

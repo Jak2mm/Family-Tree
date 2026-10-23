@@ -198,3 +198,36 @@ def test_mutating_request_needs_csrf_header(probe, make_user, login_as):
 def test_require_rejects_unknown_permission():
     with pytest.raises(ValueError):
         require("bogus")
+
+
+def test_lock_lasts_fifteen_minutes_from_newest_failure_even_if_failures_were_spread_out(client, make_user, clock):
+    u = make_user()
+    bad = {"username": u.username, "password": "wrong wrong wrong"}
+    good = {"username": u.username, "password": u.password}
+    elapsed = 0
+    for minute in (0, 10, 11, 12, 13):
+        clock.advance(minutes=minute - elapsed)
+        elapsed = minute
+        assert client.post("/api/login", json=bad).status_code == 401
+    clock.advance(minutes=15 - elapsed)  # minute 15: the minute-0 failure has aged out
+    elapsed = 15
+    assert client.post("/api/login", json=good).status_code == 429
+    clock.advance(minutes=27 - elapsed, seconds=59)
+    assert client.post("/api/login", json=good).status_code == 429
+    clock.advance(seconds=2)  # just past minute 28
+    assert client.post("/api/login", json=good).status_code == 200
+
+
+def test_lockout_is_shared_across_username_case_variants(client, make_user, clock):
+    u = make_user()
+    for name in (u.username.upper(), u.username, u.username.upper(), u.username, u.username.upper()):
+        assert client.post("/api/login", json={"username": name, "password": "wrong wrong wrong"}).status_code == 401
+    r = client.post("/api/login", json={"username": u.username, "password": u.password})
+    assert r.status_code == 429
+
+
+def test_login_cookie_is_a_browser_session_cookie(client, make_user):
+    u = make_user()
+    r = client.post("/api/login", json={"username": u.username, "password": u.password})
+    header = r.headers["set-cookie"].lower()
+    assert "max-age" not in header and "expires" not in header

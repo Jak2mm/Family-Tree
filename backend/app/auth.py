@@ -13,6 +13,7 @@ from app.security import (
     format_time,
     get_conn,
     hash_password,
+    normalise_username,
     parse_time,
     token_digest,
     verify_password,
@@ -61,7 +62,7 @@ def setup_status(conn: sqlite3.Connection = Depends(get_conn)):
 
 @router.post("/setup", status_code=201)
 def setup(body: SetupBody, conn: sqlite3.Connection = Depends(get_conn)):
-    username = body.username.strip()
+    username = normalise_username(body.username)
     if not username:
         raise HTTPException(status_code=422, detail="Please enter a username.")
     # One statement, so two simultaneous requests cannot both create the first user.
@@ -78,18 +79,29 @@ def setup(body: SetupBody, conn: sqlite3.Connection = Depends(get_conn)):
 
 
 def _locked_out(conn: sqlite3.Connection, username: str, ip: str, current) -> bool:
-    cutoff = format_time(current - LOCKOUT)
-    rows = conn.execute(
-        "SELECT attempted_at FROM LoginAttempt WHERE username = ? AND ip = ? AND attempted_at > ?"
-        " ORDER BY attempted_at DESC",
-        (username, ip, cutoff),
-    ).fetchall()
-    return len(rows) >= MAX_FAILURES and current < parse_time(rows[0]["attempted_at"]) + LOCKOUT
+    """True if 5 failures fell within 15 minutes of each other and the newest of them is under 15 minutes old.
+
+    A lock is triggered by the failure that completes such a group of five and
+    lasts 15 minutes from that failure, however the earlier four were spread.
+    """
+    cutoff = format_time(current - 2 * LOCKOUT)  # a trigger older than 15 minutes has expired; its group reaches 15 further back
+    times = [
+        parse_time(r["attempted_at"])
+        for r in conn.execute(
+            "SELECT attempted_at FROM LoginAttempt WHERE username = ? AND ip = ? AND attempted_at > ?"
+            " ORDER BY attempted_at",
+            (username, ip, cutoff),
+        )
+    ]
+    return any(
+        times[i] - times[i - MAX_FAILURES + 1] <= LOCKOUT and current < times[i] + LOCKOUT
+        for i in range(MAX_FAILURES - 1, len(times))
+    )
 
 
 @router.post("/login")
 def login(body: Credentials, request: Request, response: Response, conn: sqlite3.Connection = Depends(get_conn)):
-    username = body.username.strip().lower()
+    username = normalise_username(body.username)
     ip = request.client.host if request.client else "unknown"
     current = security.now()
     if _locked_out(conn, username, ip, current):
@@ -100,7 +112,7 @@ def login(body: Credentials, request: Request, response: Response, conn: sqlite3
     user = conn.execute("SELECT * FROM User WHERE username = ?", (username,)).fetchone()
     password_ok = verify_password(body.password, user["password_hash"] if user else _DUMMY_HASH)
     if not (user and user["active"] and password_ok):
-        conn.execute("DELETE FROM LoginAttempt WHERE attempted_at <= ?", (format_time(current - LOCKOUT),))
+        conn.execute("DELETE FROM LoginAttempt WHERE attempted_at <= ?", (format_time(current - 2 * LOCKOUT),))
         conn.execute(
             "INSERT INTO LoginAttempt (username, ip, attempted_at) VALUES (?, ?, ?)",
             (username, ip, format_time(current)),
@@ -113,7 +125,6 @@ def login(body: Credentials, request: Request, response: Response, conn: sqlite3
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=int(security.session_timeout(conn).total_seconds()),
         httponly=True,
         samesite="strict",
         path="/",

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app import audit
-from app.security import CurrentUser, get_conn, hash_password, require
+from app.security import CurrentUser, get_conn, hash_password, normalise_username, require
 
 router = APIRouter(prefix="/api/users")
 
@@ -54,7 +54,7 @@ def list_users(_: CurrentUser = Depends(require("admin")), conn: sqlite3.Connect
 
 @router.post("", status_code=201)
 def create_user(body: NewUser, admin: CurrentUser = Depends(require("admin")), conn: sqlite3.Connection = Depends(get_conn)):
-    username = body.username.strip()
+    username = normalise_username(body.username)
     if not username:
         raise HTTPException(status_code=422, detail="Please enter a username.")
     try:

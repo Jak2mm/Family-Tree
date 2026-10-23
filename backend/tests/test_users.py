@@ -110,3 +110,21 @@ def test_admin_changes_need_csrf(make_user, login_as):
     admin = login_as(make_user(admin=True))
     del admin.headers["X-CSRF-Token"]
     assert admin.post("/api/users", json=NEW).status_code == 403
+
+
+def test_non_ascii_usernames_are_case_insensitive(make_user, login_as, client):
+    admin = login_as(make_user(admin=True))
+    assert admin.post("/api/users", json={**NEW, "username": "\u00c9lodie"}).status_code == 201
+    for name in ("\u00e9lodie", "\u00c9LODIE", "\u00c9lodie"):
+        r = client.post("/api/login", json={"username": name, "password": NEW["password"]})
+        assert r.status_code == 200, name
+        client.post("/api/logout", headers={"X-CSRF-Token": r.json()["csrf_token"]})
+    dup = admin.post("/api/users", json={**NEW, "username": "\u00e9lodie"})
+    assert dup.status_code == 409
+
+
+def test_username_is_unicode_normalised(make_user, login_as, client):
+    admin = login_as(make_user(admin=True))
+    admin.post("/api/users", json={**NEW, "username": "Zoe\u0301"})  # decomposed e-acute
+    r = client.post("/api/login", json={"username": "Zo\u00e9", "password": NEW["password"]})
+    assert r.status_code == 200
