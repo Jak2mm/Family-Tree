@@ -42,21 +42,21 @@ export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId)
   const blocked = (p: Pt, q: Pt, except: number[]) => [...boxes].some(([id, b]) => !except.includes(id) && touches(p, q, b));
 
   const lanesUsed = new Map<number, number>();
-  const joinPartners = (idA: number, idB: number): { points: Pt[]; mid: Pt } => {
+  const joinPartners = (idA: number, idB: number): { points: Pt[]; mid: Pt; lane: number } => {
     const [first, second] = [idA, idB].sort((x, y) => boxes.get(x)!.v0 - boxes.get(y)!.v0 || boxes.get(x)!.u0 - boxes.get(y)!.u0 || x - y);
     const a = boxes.get(first)!;
     const b = boxes.get(second)!;
     const [ca, cb] = [middle(a), middle(b)];
     const sameBand = a.v0 === b.v0;
     if (sameBand && !blocked(ca, cb, [first, second])) {
-      return { points: [ca, cb], mid: [(ca[0] + cb[0]) / 2, ca[1]] };
+      return { points: [ca, cb], mid: [(ca[0] + cb[0]) / 2, ca[1]], lane: a.v1 + GAP / 2 };
     }
     const used = lanesUsed.get(a.v1) ?? 0;
     lanesUsed.set(a.v1, used + 1);
     const lane = a.v1 + LANE_START + LANE_STEP * (used % LANES);
     const out: Pt = [ca[0], a.v1];
     if (sameBand) {
-      return { points: [out, [ca[0], lane], [cb[0], lane], [cb[0], b.v1]], mid: [(ca[0] + cb[0]) / 2, lane] };
+      return { points: [out, [ca[0], lane], [cb[0], lane], [cb[0], b.v1]], mid: [(ca[0] + cb[0]) / 2, lane], lane };
     }
     // Different bands: along the lane, then down a free channel beside the later partner's card, then in from the side.
     const others = [...boxes].filter(([id]) => id !== first && id !== second).map(([, box]) => box);
@@ -69,16 +69,38 @@ export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId)
     const ranked = [...candidates].filter((u) => u <= b.u0 || u >= b.u1).sort((x, y) => Math.abs(x - cb[0]) - Math.abs(y - cb[0]) || x - y);
     const entry = (u: number) => (u < cb[0] ? b.u0 : b.u1);
     const channel = ranked.find((u) => free([u, lane], [u, cb[1]]) && free([u, cb[1]], [entry(u), cb[1]])) ?? ranked[0];
-    return { points: [out, [ca[0], lane], [channel, lane], [channel, cb[1]], [entry(channel), cb[1]]], mid: [(ca[0] + channel) / 2, lane] };
+    return { points: [out, [ca[0], lane], [channel, lane], [channel, cb[1]], [entry(channel), cb[1]]], mid: [(ca[0] + channel) / 2, lane], lane };
+  };
+
+  /**
+   * From the parents down to the child, with the horizontal run in the gap just before the child's band, where no card is.
+   * If a card in an intermediate band is in the way of the first drop, go sideways along the free gap after the parents
+   * and drop in a channel between cards instead.
+   */
+  const childLine = (source: Pt, lane: number, target: Pt): Pt[] => {
+    const bus = Math.max(target[1] - GAP / 2, source[1]);
+    let down: Pt[] = [source, [source[0], bus]];
+    if (blocked(source, [source[0], bus], [])) {
+      const candidates = new Set<number>();
+      for (const box of boxes.values()) {
+        candidates.add(box.u0 - GAP / 2);
+        candidates.add(box.u1 + GAP / 2);
+      }
+      const ranked = [...candidates].sort((x, y) => Math.abs(x - source[0]) - Math.abs(y - source[0]) || x - y);
+      const channel = ranked.find((u) => !blocked([u, lane], [u, bus], [])) ?? ranked[0];
+      down = [source, [source[0], lane], [channel, lane], [channel, bus]];
+    }
+    const line: Pt[] = [...down, [target[0], bus], target];
+    return line.filter((p, i) => i === 0 || p[0] !== line[i - 1][0] || p[1] !== line[i - 1][1]);
   };
 
   const edges: Edge[] = [];
-  const mids = new Map<string, Pt>();
+  const mids = new Map<string, { mid: Pt; lane: number }>();
   const keyOf = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
   for (const [a, b] of data.partnerships) {
     if (a === b || !boxes.has(a) || !boxes.has(b) || mids.has(keyOf(a, b))) continue;
     const route = joinPartners(a, b);
-    mids.set(keyOf(a, b), route.mid);
+    mids.set(keyOf(a, b), { mid: route.mid, lane: route.lane });
     edges.push({ kind: "partner", points: route.points.map(real) });
   }
 
@@ -95,15 +117,16 @@ export function edgesFor(data: TreeData, nodes: LaidOutNode[], layout: LayoutId)
       done.add(parentId);
       const mate = list.find((q) => !done.has(q) && mids.has(keyOf(parentId, q)));
       let source: Pt;
+      let lane: number; // a free horizontal gap just after the parents, usable for sideways moves
       if (mate !== undefined) {
         done.add(mate);
-        source = mids.get(keyOf(parentId, mate))!;
+        ({ mid: source, lane } = mids.get(keyOf(parentId, mate))!);
       } else {
         const parent = boxes.get(parentId)!;
         source = [middle(parent)[0], parent.v1];
+        lane = parent.v1 + GAP / 2;
       }
-      const bus = (source[1] + target[1]) / 2;
-      edges.push({ kind: "parent", points: ([source, [source[0], bus], [target[0], bus], target] as Pt[]).map(real) });
+      edges.push({ kind: "parent", points: childLine(source, lane, target).map(real) });
     }
   }
   return edges;

@@ -166,3 +166,86 @@ describe("edgesFor connectors", () => {
     }
   });
 });
+
+describe("edgesFor basics", () => {
+  it("joins partners and drops each child from the middle of its parents' partnership (rows)", () => {
+    const data = tree([{ id: 1 }, { id: 2 }, { id: 3, gen: 1 }], [[1, 3], [2, 3]], [[1, 2]]);
+    const nodes = layoutTree(data, 1).nodes;
+    const edges = edgesFor(data, nodes, 1);
+    const centre = (id: number) => ({ x: nodes.find((n) => n.id === id)!.x + CARD_W / 2, y: nodes.find((n) => n.id === id)!.y + CARD_H / 2 });
+    const partner = edges.filter((e) => e.kind === "partner");
+    expect(partner).toHaveLength(1);
+    expect(partner[0].points).toEqual([[centre(1).x, centre(1).y], [centre(2).x, centre(2).y]]);
+    const parent = edges.filter((e) => e.kind === "parent");
+    expect(parent).toHaveLength(1); // one line for the pair, not one per parent
+    const pts = parent[0].points;
+    expect(pts[0]).toEqual([(centre(1).x + centre(2).x) / 2, centre(1).y]);
+    expect(pts[pts.length - 1]).toEqual([centre(3).x, nodes.find((n) => n.id === 3)!.y]);
+  });
+
+  it("runs sideways in the column layouts, from the parent's left edge to the child's right edge", () => {
+    const data = tree([{ id: 1 }, { id: 3, gen: 1 }], [[1, 3]]);
+    const nodes = layoutTree(data, 2).nodes;
+    const [edge] = edgesFor(data, nodes, 2);
+    const p = nodes.find((n) => n.id === 1)!, c = nodes.find((n) => n.id === 3)!;
+    expect(edge.points[0]).toEqual([p.x, p.y + CARD_H / 2]);
+    expect(edge.points[edge.points.length - 1]).toEqual([c.x + CARD_W, c.y + CARD_H / 2]);
+  });
+
+  it("ignores links to people who are not in the tree", () => {
+    const data = tree([{ id: 1 }], [[1, 99]], [[1, 98]]);
+    expect(edgesFor(data, layoutTree(data, 1).nodes, 1)).toEqual([]);
+  });
+});
+
+// Parent 1 (1950s) and partner 5 (1970s) sit in different bands with 5 between 1 and the children (1980s).
+describe("edgesFor child lines with a partner in a band between", () => {
+  const nearCard = (p: Pt, nodes: Nodes) => nodes.find((n) => p[0] >= n.x - 1 && p[0] <= n.x + CARD_W + 1 && p[1] >= n.y - 1 && p[1] <= n.y + CARD_H + 1)!;
+  function checkChildLines(data: TreeData, layout: LayoutId) {
+    const { nodes } = layoutTree(data, layout);
+    const edges = edgesFor(data, nodes, layout);
+    const connectors = partnerEdges(edges);
+    expect(connectors.length).toBeGreaterThan(0);
+    for (const c of connectors) expect(crossed(c.points, nodes, data.partnerships.flat())).toEqual([]);
+    const kids = parentEdges(edges);
+    expect(kids.length).toBeGreaterThan(0);
+    for (const kid of kids) {
+      const child = nearCard(kid.points[kid.points.length - 1], nodes);
+      expect(crossed(kid.points, nodes, [child.id]), `child ${child.id} layout ${layout} points ${JSON.stringify(kid.points)}`).toEqual([]);
+      expect(connectors.some((c) => onPolyline(kid.points[0], c.points))).toBe(true);
+    }
+    return { nodes, kids };
+  }
+  const small = tree(
+    [{ id: 1, born: 1950 }, { id: 5, born: 1972 }, { id: 4, born: 1982, gen: 1 }, { id: 6, born: 1984, gen: 1 }],
+    [[1, 4], [5, 4], [1, 6], [5, 6]],
+    [[1, 5]],
+  );
+  // Person 1 with four partners born in different decades and a child with each.
+  const large = tree(
+    [
+      { id: 1, born: 1950 }, { id: 2, born: 1945 }, { id: 5, born: 1972 }, { id: 6, born: 1975 }, { id: 8, born: 1960 },
+      { id: 3, born: 1980, gen: 1 }, { id: 4, born: 1982, gen: 1 }, { id: 7, born: 1985, gen: 1 }, { id: 10, born: 1990, gen: 1 },
+    ],
+    [[1, 3], [2, 3], [1, 4], [5, 4], [1, 7], [6, 7], [1, 10], [8, 10]],
+    [[1, 2], [1, 5], [1, 6], [1, 8]],
+  );
+
+  it.each([3, 4] as const)("layout %i: a couple with a partner in between and two children has no line through a card", (layout) => {
+    const { nodes } = checkChildLines(small, layout);
+    // Precondition: partner 5's band really is between 1 and the children, or the test proves nothing.
+    const along = (id: number) => (layout === 3 ? node(nodes, id).y : -node(nodes, id).x);
+    expect(along(1)).toBeLessThan(along(5));
+    expect(along(5)).toBeLessThan(along(4));
+  });
+
+  it.each([3, 4] as const)("layout %i: four partnerships with a child from each have no line through a card", (layout) => {
+    const { nodes } = checkChildLines(large, layout);
+    expect(new Set(nodes.map((n) => (layout === 3 ? n.y : n.x))).size).toBeGreaterThan(3);
+  });
+
+  it.each([1, 2] as const)("layout %i: the same families by generation also have clean child lines", (layout) => {
+    checkChildLines(small, layout);
+    checkChildLines(large, layout);
+  });
+});

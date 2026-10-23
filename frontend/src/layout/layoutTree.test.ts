@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { TreeData, TreePerson } from "../types";
-import { edgesFor } from "./edges";
 import { CARD_H, CARD_W, GAP, layoutTree } from "./layoutTree";
 
 type Spec = { id: number; name?: string; born?: number | null; gen?: number; date?: string | null };
@@ -266,36 +265,5 @@ describe("layoutTree performance", () => {
       expect(out.nodes).toHaveLength(300);
       expect(overlaps(out)).toEqual([]);
     }
-  });
-});
-
-describe("edgesFor", () => {
-  it("joins partners and drops each child from the middle of its parents' partnership (rows)", () => {
-    const data = tree([{ id: 1 }, { id: 2 }, { id: 3, gen: 1 }], [[1, 3], [2, 3]], [[1, 2]]);
-    const nodes = layoutTree(data, 1).nodes;
-    const edges = edgesFor(data, nodes, 1);
-    const centre = (id: number) => ({ x: nodes.find((n) => n.id === id)!.x + CARD_W / 2, y: nodes.find((n) => n.id === id)!.y + CARD_H / 2 });
-    const partner = edges.filter((e) => e.kind === "partner");
-    expect(partner).toHaveLength(1);
-    expect(partner[0].points).toEqual([[centre(1).x, centre(1).y], [centre(2).x, centre(2).y]]);
-    const parent = edges.filter((e) => e.kind === "parent");
-    expect(parent).toHaveLength(1); // one line for the pair, not one per parent
-    const pts = parent[0].points;
-    expect(pts[0]).toEqual([(centre(1).x + centre(2).x) / 2, centre(1).y]);
-    expect(pts[pts.length - 1]).toEqual([centre(3).x, nodes.find((n) => n.id === 3)!.y]);
-  });
-
-  it("runs sideways in the column layouts, from the parent's left edge to the child's right edge", () => {
-    const data = tree([{ id: 1 }, { id: 3, gen: 1 }], [[1, 3]]);
-    const nodes = layoutTree(data, 2).nodes;
-    const [edge] = edgesFor(data, nodes, 2);
-    const p = nodes.find((n) => n.id === 1)!, c = nodes.find((n) => n.id === 3)!;
-    expect(edge.points[0]).toEqual([p.x, p.y + CARD_H / 2]);
-    expect(edge.points[edge.points.length - 1]).toEqual([c.x + CARD_W, c.y + CARD_H / 2]);
-  });
-
-  it("ignores links to people who are not in the tree", () => {
-    const data = tree([{ id: 1 }], [[1, 99]], [[1, 98]]);
-    expect(edgesFor(data, layoutTree(data, 1).nodes, 1)).toEqual([]);
   });
 });
