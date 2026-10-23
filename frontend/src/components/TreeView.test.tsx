@@ -32,7 +32,7 @@ describe("TreeView link popup", () => {
     expect(posts(net)).toHaveLength(0);
     await user.click(confirm);
     expect(await within(dialog).findByText("Linked")).toBeInTheDocument();
-    expect(posts(net)).toEqual([{ method: "POST", path: "/api/links", body: { a: 1, b: 2, relation: "parent" } }]);
+    expect(posts(net)).toEqual([{ method: "POST", path: "/api/links", body: { a: 1, b: 2, relation: "parent", parent_kind: "biological" } }]);
   });
 
   it("matches a short typed word to its only option and explains text that matches nothing", async () => {
@@ -40,11 +40,11 @@ describe("TreeView link popup", () => {
     const net = setup(["read", "add", "edit"], { "POST /api/links": LINKED });
     const dialog = await openPopup(user);
     await choose(user, dialog, "banana");
-    expect(within(dialog).getByText(/does not match one of the options/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/not one we know/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Confirm" })).toBeDisabled();
-    await user.clear(within(dialog).getByRole("combobox"));
+    await user.clear(within(dialog).getByRole("textbox", { name: /type the relationship/i }));
     await choose(user, dialog, "sibling");
-    expect(within(dialog).queryByText(/does not match/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/not one we know/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
     await within(dialog).findByText("Linked");
     expect(posts(net)[0].body).toEqual({ a: 1, b: 2, relation: "sibling" });
@@ -54,7 +54,7 @@ describe("TreeView link popup", () => {
     const user = userEvent.setup();
     const net = setup(["read", "add", "edit"], { "POST /api/links": LINKED });
     const dialog = await openPopup(user);
-    await choose(user, dialog, "Ann Adams is the spouse/partner of Bob Brown");
+    await choose(user, dialog, "Ann Adams is the spouse or partner of Bob Brown");
     await user.selectOptions(within(dialog).getByLabelText("Kind of partnership"), "de facto");
     await user.type(within(dialog).getByLabelText("Year it started (optional)"), "19x");
     expect(within(dialog).getByText(/1 to 4 digits/)).toBeInTheDocument();
@@ -144,7 +144,7 @@ describe("TreeView link popup", () => {
     await user.click(within(dialog).getByRole("button", { name: "Link anyway" }));
     expect(await within(dialog).findByText("Linked")).toBeInTheDocument();
     expect(posts(net).map((c) => c.path)).toEqual(["/api/links", "/api/links?force=1"]);
-    expect(posts(net)[1].body).toEqual({ a: 1, b: 2, relation: "parent" });
+    expect(posts(net)[1].body).toEqual({ a: 1, b: 2, relation: "parent", parent_kind: "biological" });
   });
 
   it("asks who the parent is when siblings have none, then resends with parent_id", async () => {

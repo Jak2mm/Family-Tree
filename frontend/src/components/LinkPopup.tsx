@@ -4,42 +4,38 @@ import { useMe } from "../me";
 import { useAction } from "../useAction";
 import type { NewLink } from "../types";
 import { ErrorMessage } from "./ErrorMessage";
+import { readRelation, type ParentKind, type PartnershipKind, type Relation } from "./linkWords";
 
-type Relation = NewLink["relation"];
-type Kind = NonNullable<NewLink["partnership_kind"]>;
 type Stage = { name: "choose" } | { name: "warning"; message: string } | { name: "parent" } | { name: "done"; ids: string[] } | { name: "undone" };
 export interface Named {
   id: number;
   name: string;
 }
 
-const WORDS: [Relation, string][] = [
+const OPTIONS: [Relation, string][] = [
   ["parent", "parent"],
   ["child", "child"],
-  ["spouse", "spouse/partner"],
+  ["spouse", "spouse or partner"],
   ["sibling", "sibling"],
 ];
-const KINDS: Kind[] = ["married", "de facto", "partner", "other"];
+const KINDS: PartnershipKind[] = ["married", "de facto", "partner", "other"];
+const PARENT_KINDS: [ParentKind, string][] = [
+  ["biological", "Biological"],
+  ["adoptive", "Adoptive"],
+  ["step", "Step"],
+  ["foster", "Foster"],
+];
 const YEAR = /^\d{1,4}$/;
-
-/** The one option the typed text means: an exact match, or text that only one option contains. */
-function match(typed: string, options: { relation: Relation; text: string }[]) {
-  const t = typed.trim().toLowerCase();
-  if (!t) return undefined;
-  const exact = options.find((o) => o.text.toLowerCase() === t);
-  if (exact) return exact;
-  const some = options.filter((o) => o.text.toLowerCase().includes(t));
-  return some.length === 1 ? some[0] : undefined;
-}
 
 /** Asks how two people are related, and saves only when the person confirms. */
 export function LinkPopup({ a, b, people, onClose, onChanged }: { a: Named; b: Named; people: Named[]; onClose: () => void; onChanged: () => void }) {
   const { can } = useMe();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const listId = useId();
   const [typed, setTyped] = useState("");
-  const [kind, setKind] = useState<Kind>("partner");
+  const [chosen, setChosen] = useState<Relation | undefined>(undefined);
+  const [parentKind, setParentKind] = useState<ParentKind>("biological");
+  const [kind, setKind] = useState<PartnershipKind>("partner");
   const [start, setStart] = useState("");
   const [search, setSearch] = useState("");
   const [parentId, setParentId] = useState<number | null>(null);
@@ -51,14 +47,22 @@ export function LinkPopup({ a, b, people, onClose, onChanged }: { a: Named; b: N
     if (dialog && !dialog.open) dialog.showModal();
   }, []);
 
-  const options = WORDS.map(([relation, word]) => ({ relation, text: `${a.name} is the ${word} of ${b.name}` }));
-  const chosen = match(typed, options)?.relation;
+  const options = OPTIONS.map(([relation, word]) => ({ relation, text: `${a.name} is the ${word} of ${b.name}` }));
+  const understood = readRelation(typed).relation !== undefined;
+  const onType = (text: string) => {
+    setTyped(text);
+    const read = readRelation(text);
+    if (read.relation) setChosen(read.relation);
+    if (read.parentKind) setParentKind(read.parentKind);
+    if (read.partnershipKind) setKind(read.partnershipKind);
+  };
   const yearOk = start === "" || (YEAR.test(start) && Number(start) >= 1);
   const ready = chosen !== undefined && (chosen !== "spouse" || yearOk);
 
   const send = (force: boolean) =>
     run(async () => {
       const body: NewLink = { a: a.id, b: b.id, relation: chosen! };
+      if (chosen === "parent" || chosen === "child") body.parent_kind = parentKind;
       if (chosen === "spouse") {
         body.partnership_kind = kind;
         if (start) body.start_year = Number(start);
@@ -109,18 +113,32 @@ export function LinkPopup({ a, b, people, onClose, onChanged }: { a: Named; b: N
         {stage.name === "choose" && (
           <>
             <label>
-              Relationship
-              <input list={listId} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Start typing, or pick from the list" autoComplete="off" autoFocus />
+              Type the relationship (optional)
+              <input value={typed} onChange={(e) => onType(e.target.value)} placeholder="For example: mother, son, wife, brother" autoComplete="off" autoFocus />
             </label>
-            <datalist id={listId}>
-              {options.map((o) => <option key={o.relation} value={o.text} />)}
-            </datalist>
-            {typed.trim() !== "" && !chosen && <p className="hint">That does not match one of the options. Please pick one from the list.</p>}
+            {typed.trim() !== "" && !understood && <p className="hint">That word is not one we know. Please pick one of the options below.</p>}
+            <fieldset className="choices">
+              <legend>Relationship</legend>
+              {options.map((o) => (
+                <label key={o.relation} className="check">
+                  <input type="radio" name={`${titleId}-relation`} checked={chosen === o.relation} onChange={() => setChosen(o.relation)} />
+                  {o.text}
+                </label>
+              ))}
+            </fieldset>
+            {(chosen === "parent" || chosen === "child") && (
+              <label>
+                Kind
+                <select value={parentKind} onChange={(e) => setParentKind(e.target.value as ParentKind)}>
+                  {PARENT_KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+            )}
             {chosen === "spouse" && (
               <>
                 <label>
                   Kind of partnership
-                  <select value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
+                  <select value={kind} onChange={(e) => setKind(e.target.value as PartnershipKind)}>
                     {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>

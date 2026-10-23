@@ -39,7 +39,10 @@ export async function openPopup(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await card(/Bob Brown/));
   return screen.findByRole("dialog");
 }
+/** Pick an option by its full text, or type a word into the box above the options. */
 export const choose = async (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement, text: string) => {
-  await user.type(within(dialog).getByRole("combobox", { name: "Relationship" }), text);
+  const option = within(dialog).queryByRole("radio", { name: text });
+  if (option) await user.click(option);
+  else await user.type(within(dialog).getByRole("textbox", { name: /type the relationship/i }), text);
 };
 export const posts = (net: ReturnType<typeof mockFetch>) => net.calls.filter((c) => c.method === "POST");
